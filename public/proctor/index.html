@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fiscalização — Prova Online</title>
+  <link rel="stylesheet" href="/shared/base.css" />
+  <link rel="stylesheet" href="/proctor/styles.css" />
+</head>
+<body>
+
+  <div id="loading-screen" class="screen center-screen">
+    <div class="card"><p class="hint">Conectando à sala...</p></div>
+  </div>
+
+  <div id="room-screen" class="screen hidden">
+    <div class="proctor-layout">
+      <div class="proctor-header">
+        <div>
+          <h2 id="room-title">Sala</h2>
+          <div class="sub" id="room-sub"></div>
+        </div>
+        <div class="timer-box" style="margin:0">
+          <div class="timer-value" id="timer-value">--:--:--</div>
+          <div class="timer-label">Tempo restante</div>
+        </div>
+      </div>
+
+      <div class="status-row">
+        <span class="badge badge-neutral" id="badge-attempt"><span class="badge-dot"></span>Aguardando</span>
+        <span class="badge badge-neutral" id="badge-question"><span class="badge-dot"></span>Questão —/—</span>
+        <span class="badge badge-ok" id="badge-focus"><span class="badge-dot"></span>NA PROVA</span>
+        <span class="badge badge-neutral" id="badge-stream"><span class="badge-dot"></span>Aguardando transmissão</span>
+      </div>
+
+      <div class="video-wrap">
+        <video id="remote-video" autoplay muted playsinline></video>
+        <div class="video-overlay hidden" id="video-overlay">Aguardando o aluno iniciar a transmissão de tela...</div>
+        <button class="unmute-btn hidden" id="unmute-btn">🔊 Ativar áudio</button>
+      </div>
+
+      <p class="proctor-note">Você está apenas observando. Não é possível responder, alterar respostas ou controlar o computador do aluno.</p>
+    </div>
+  </div>
+
+  <div id="error-screen" class="screen center-screen hidden">
+    <div class="card">
+      <h2>Não foi possível continuar</h2>
+      <p id="error-message"></p>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/proctor/webrtc-proctor.js"></script>
+  <script src="/proctor/client.js"></script>
+</body>
+</html>

@@ -1,0 +1,508 @@
+(() => {
+  async function api(path, options = {}) {
+    const res = await fetch(`/api/admin${path}`, {
+      headers: options.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
+      ...options,
+    });
+    let data;
+    try { data = await res.json(); } catch (_) { data = { success: false, message: 'Resposta inválida do servidor.' }; }
+    return { status: res.status, ...data };
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+  }
+
+  function fmtDate(d) {
+    if (!d) return '—';
+    return new Date(d).toLocaleString('pt-BR');
+  }
+
+  function fmtDuration(ms) {
+    if (ms == null) return '—';
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+    const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+    const s = String(totalSeconds % 60).padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  }
+
+  // ---------------- Login ----------------
+  const loginForm = document.getElementById('login-form');
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const errorEl = document.getElementById('login-error');
+    const data = await api('/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+    if (!data.success) { errorEl.textContent = data.message || 'Falha no login.'; return; }
+    document.getElementById('admin-username').textContent = data.username;
+    enterApp();
+  });
+
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    await api('/logout', { method: 'POST' });
+    location.reload();
+  });
+
+  async function checkSession() {
+    const data = await api('/me');
+    if (data.success) {
+      document.getElementById('admin-username').textContent = data.admin.username;
+      enterApp();
+    }
+  }
+
+  function enterApp() {
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('app-screen').classList.remove('hidden');
+    connectSocket();
+    loadAll();
+  }
+
+  // ---------------- Tabs ----------------
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.tab-panel').forEach((p) => p.classList.add('hidden'));
+      document.getElementById(btn.dataset.tab).classList.remove('hidden');
+    });
+  });
+
+  function loadAll() {
+    loadDashboard();
+    loadLiveRooms();
+    loadSettings();
+    loadExams();
+    loadResults();
+    loadSecurityLogs();
+  }
+
+  // ---------------- Socket (tempo real) ----------------
+  const liveRooms = new Map();
+
+  function connectSocket() {
+    const socket = io();
+    socket.on('rooms:snapshot', (rooms) => {
+      liveRooms.clear();
+      for (const r of rooms) if (r) liveRooms.set(r.roomId, r);
+      renderLiveRooms();
+    });
+    socket.on('room:update', (room) => {
+      if (!room) return;
+      liveRooms.set(room.roomId, room);
+      renderLiveRooms();
+      loadDashboard();
+    });
+    socket.on('alert', () => loadDashboard());
+  }
+
+  // ---------------- Dashboard ----------------
+  async function loadDashboard() {
+    const data = await api('/dashboard');
+    if (!data.success) return;
+    const stats = [
+      ['Provas em andamento', data.dashboard.examsInProgress],
+      ['Provas finalizadas', data.dashboard.examsFinished],
+      ['Salas ativas', data.dashboard.roomsActive],
+      ['Alunos online', data.dashboard.studentsOnline],
+      ['Professores conectados', data.dashboard.proctorsConnected],
+      ['Transmissões ativas', data.dashboard.transmissionsLive],
+      ['Alertas de foco', data.dashboard.focusAlerts],
+    ];
+    document.getElementById('dashboard-stats').innerHTML = stats.map(([label, value]) => `
+      <div class="stat-card"><div class="stat-value">${value}</div><div class="stat-label">${label}</div></div>
+    `).join('');
+  }
+
+  async function loadLiveRooms() {
+    const data = await api('/rooms/live');
+    if (!data.success) return;
+    for (const r of data.rooms) liveRooms.set(r.roomId, r);
+    renderLiveRooms();
+  }
+
+  const STREAM_LABEL = { awaiting: 'Aguardando', capturing: 'Capturando', connecting: 'Conectando', negotiating: 'Negociando', live: 'Transmitindo', reconnecting: 'Reconectando', interrupted: 'Interrompida', error: 'Erro' };
+
+  function renderLiveRooms() {
+    const el = document.getElementById('live-rooms-list');
+    const rooms = Array.from(liveRooms.values()).filter(Boolean);
+    if (rooms.length === 0) { el.innerHTML = '<p class="list-empty">Nenhuma sala com atividade no momento.</p>'; return; }
+
+    el.innerHTML = rooms.map((r) => {
+      const streamCls = r.streamStatus === 'live' ? 'badge-ok' : r.streamStatus === 'interrupted' || r.streamStatus === 'error' ? 'badge-danger' : 'badge-neutral';
+      const focusCls = r.focusStatus === 'out' ? 'badge-warn' : 'badge-ok';
+      const timeLabel = r.timeRemainingMs != null ? fmtDuration(r.timeRemainingMs) : '—';
+      return `
+      <div class="item-row live-room-card">
+        <div class="live-room-top">
+          <strong>${escapeHtml(r.roomLabel || r.roomId)} — ${escapeHtml(r.studentName || '')}</strong>
+          <span class="badge ${r.studentOnline ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${r.studentOnline ? 'Online' : 'Offline'}</span>
+        </div>
+        <div class="live-room-badges">
+          <span class="badge ${streamCls}"><span class="badge-dot"></span>${STREAM_LABEL[r.streamStatus] || r.streamStatus}</span>
+          <span class="badge ${focusCls}"><span class="badge-dot"></span>${r.focusStatus === 'out' ? 'Fora da tela' : 'Na prova'}</span>
+          <span class="badge badge-neutral"><span class="badge-dot"></span>Questão ${r.currentQuestionOrder || 0}/${r.totalQuestions || 0}</span>
+          <span class="badge badge-neutral"><span class="badge-dot"></span>${timeLabel} restante</span>
+          <span class="badge badge-neutral"><span class="badge-dot"></span>${r.proctorCount} fiscal(is)</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // ---------------- Configurações da plataforma ----------------
+  async function loadSettings() {
+    const data = await api('/settings');
+    if (!data.success) return;
+    document.getElementById('settings-platform-name').value = data.settings.platformName || '';
+    document.getElementById('settings-intro-video').value = data.settings.introVideoYoutubeId || '';
+  }
+
+  document.getElementById('settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await api('/settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        platformName: document.getElementById('settings-platform-name').value,
+        introVideoYoutubeId: document.getElementById('settings-intro-video').value,
+      }),
+    });
+  });
+
+  document.getElementById('settings-logo-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = document.getElementById('settings-logo-file').files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('logo', file);
+    await api('/settings/logo', { method: 'POST', body: formData });
+  });
+
+  // ---------------- Provas ----------------
+  let examsCache = [];
+  let selectedExamId = null;
+
+  async function loadExams() {
+    const data = await api('/exams');
+    if (!data.success) return;
+    examsCache = data.exams;
+    renderExams();
+    renderRoomExamSelect();
+    renderResultsExamFilter();
+  }
+
+  document.getElementById('exam-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      name: document.getElementById('exam-name').value.trim(),
+      questionCount: Number(document.getElementById('exam-question-count').value),
+      pointsPerQuestion: Number(document.getElementById('exam-points').value),
+      durationMinutes: Number(document.getElementById('exam-duration').value),
+      introVideoYoutubeId: document.getElementById('exam-intro-video').value.trim() || null,
+    };
+    const data = await api('/exams', { method: 'POST', body: JSON.stringify(payload) });
+    if (data.success) { e.target.reset(); document.getElementById('exam-question-count').value = 50; document.getElementById('exam-points').value = 2; document.getElementById('exam-duration').value = 120; loadExams(); }
+    else alert(data.message || 'Erro ao criar prova.');
+  });
+
+  function renderExams() {
+    const el = document.getElementById('exams-list');
+    if (examsCache.length === 0) { el.innerHTML = '<p class="list-empty">Nenhuma prova cadastrada.</p>'; return; }
+    el.innerHTML = examsCache.map((exam) => `
+      <div class="item-row">
+        <div>
+          <strong>${escapeHtml(exam.name)}</strong>
+          <div class="room-item-meta">${exam.questionCount} questões · ${exam.pointsPerQuestion} pts/questão · ${exam.durationMinutes} min</div>
+        </div>
+        <div class="room-item-actions">
+          <span class="badge ${exam.active ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${exam.active ? 'Ativa' : 'Inativa'}</span>
+          <button class="small-btn secondary-btn" data-toggle-exam="${exam._id}" data-active="${exam.active}">${exam.active ? 'Desativar' : 'Ativar'}</button>
+          <button class="small-btn" data-view-questions="${exam._id}" data-name="${escapeHtml(exam.name)}">Questões</button>
+        </div>
+      </div>
+    `).join('');
+
+    el.querySelectorAll('[data-toggle-exam]').forEach((btn) => btn.addEventListener('click', async () => {
+      await api(`/exams/${btn.dataset.toggleExam}`, { method: 'PUT', body: JSON.stringify({ active: btn.dataset.active !== 'true' }) });
+      loadExams();
+    }));
+    el.querySelectorAll('[data-view-questions]').forEach((btn) => btn.addEventListener('click', () => {
+      selectedExamId = btn.dataset.viewQuestions;
+      document.getElementById('questions-exam-name').textContent = btn.dataset.name;
+      document.getElementById('questions-section').classList.remove('hidden');
+      loadQuestions();
+    }));
+  }
+
+  // ---------------- Banco de questões ----------------
+  let questionsCache = [];
+
+  async function loadQuestions() {
+    if (!selectedExamId) return;
+    const data = await api(`/exams/${selectedExamId}/questions`);
+    if (!data.success) return;
+    questionsCache = data.questions;
+    renderQuestions();
+  }
+
+  function questionFormHtml(existing) {
+    const opts = existing ? existing.options : [{ key: 'A', text: '' }, { key: 'B', text: '' }, { key: 'C', text: '' }, { key: 'D', text: '' }];
+    const correct = existing ? existing.correctKey : 'A';
+    return `
+      <div class="question-form" id="question-form">
+        <textarea id="qf-text" rows="2" placeholder="Texto da pergunta">${existing ? escapeHtml(existing.text) : ''}</textarea>
+        ${opts.map((o) => `
+          <div class="opt-row">
+            <input type="radio" name="qf-correct" value="${o.key}" ${o.key === correct ? 'checked' : ''} />
+            <span>${o.key}</span>
+            <input type="text" class="qf-opt" data-key="${o.key}" placeholder="Alternativa ${o.key}" value="${escapeHtml(o.text)}" />
+          </div>
+        `).join('')}
+        <div>
+          <button type="button" id="qf-save" class="small-btn">${existing ? 'Salvar alterações' : 'Adicionar questão'}</button>
+          <button type="button" id="qf-cancel" class="small-btn secondary-btn">Cancelar</button>
+        </div>
+        <p class="error-msg" id="qf-error"></p>
+      </div>`;
+  }
+
+  function bindQuestionForm(container, existingId) {
+    container.querySelector('#qf-cancel').addEventListener('click', () => { container.innerHTML = ''; container.remove(); });
+    container.querySelector('#qf-save').addEventListener('click', async () => {
+      const text = container.querySelector('#qf-text').value.trim();
+      const options = Array.from(container.querySelectorAll('.qf-opt')).map((inp) => ({ key: inp.dataset.key, text: inp.value.trim() }));
+      const correctKey = container.querySelector('input[name="qf-correct"]:checked')?.value;
+      const errorEl = container.querySelector('#qf-error');
+      if (!text || options.some((o) => !o.text) || !correctKey) { errorEl.textContent = 'Preencha a pergunta, as 4 alternativas e marque a correta.'; return; }
+
+      const payload = { text, options, correctKey };
+      const data = existingId
+        ? await api(`/questions/${existingId}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await api(`/exams/${selectedExamId}/questions`, { method: 'POST', body: JSON.stringify(payload) });
+
+      if (!data.success) { errorEl.textContent = data.message || 'Erro ao salvar.'; return; }
+      loadQuestions();
+    });
+  }
+
+  document.getElementById('new-question-btn').addEventListener('click', () => {
+    const list = document.getElementById('questions-list');
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = questionFormHtml(null);
+    list.prepend(wrapper.firstElementChild);
+    bindQuestionForm(list.firstElementChild, null);
+  });
+
+  function renderQuestions() {
+    const el = document.getElementById('questions-list');
+    if (questionsCache.length === 0) { el.innerHTML = '<p class="list-empty">Nenhuma questão cadastrada nesta prova.</p>'; return; }
+
+    el.innerHTML = questionsCache.map((q) => `
+      <div class="item-row question-item" data-question-id="${q._id}">
+        <div class="q-text">${escapeHtml(q.text)}</div>
+        <div class="q-options">
+          ${q.options.map((o) => `<span class="${o.key === q.correctKey ? 'correct' : ''}">${o.key} — ${escapeHtml(o.text)}${o.key === q.correctKey ? ' ✓' : ''}</span>`).join('')}
+        </div>
+        <div class="q-actions">
+          <span class="badge ${q.active ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${q.active ? 'Ativa' : 'Inativa'}</span>
+          <button class="small-btn secondary-btn" data-edit="${q._id}">Editar</button>
+          <button class="small-btn secondary-btn" data-duplicate="${q._id}">Duplicar</button>
+          <button class="small-btn secondary-btn" data-toggle="${q._id}" data-active="${q.active}">${q.active ? 'Desativar' : 'Ativar'}</button>
+          <button class="small-btn danger-btn" data-delete="${q._id}">Excluir</button>
+        </div>
+      </div>
+    `).join('');
+
+    el.querySelectorAll('[data-edit]').forEach((btn) => btn.addEventListener('click', () => {
+      const q = questionsCache.find((x) => x._id === btn.dataset.edit);
+      const row = btn.closest('.item-row');
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = questionFormHtml(q);
+      row.replaceWith(wrapper.firstElementChild);
+      bindQuestionForm(wrapper.firstElementChild, q._id);
+    }));
+    el.querySelectorAll('[data-duplicate]').forEach((btn) => btn.addEventListener('click', async () => {
+      await api(`/questions/${btn.dataset.duplicate}/duplicate`, { method: 'POST' });
+      loadQuestions();
+    }));
+    el.querySelectorAll('[data-toggle]').forEach((btn) => btn.addEventListener('click', async () => {
+      await api(`/questions/${btn.dataset.toggle}/active`, { method: 'PATCH', body: JSON.stringify({ active: btn.dataset.active !== 'true' }) });
+      loadQuestions();
+    }));
+    el.querySelectorAll('[data-delete]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('Excluir esta questão permanentemente?')) return;
+      await api(`/questions/${btn.dataset.delete}`, { method: 'DELETE' });
+      loadQuestions();
+    }));
+  }
+
+  // ---------------- Salas ----------------
+  function renderRoomExamSelect() {
+    const sel = document.getElementById('room-exam-select');
+    sel.innerHTML = examsCache.filter((e) => e.active).map((e) => `<option value="${e._id}">${escapeHtml(e.name)}</option>`).join('');
+  }
+
+  document.getElementById('room-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      examId: document.getElementById('room-exam-select').value,
+      roomLabel: document.getElementById('room-label').value.trim(),
+      studentName: document.getElementById('room-student-name').value.trim(),
+    };
+    const data = await api('/rooms', { method: 'POST', body: JSON.stringify(payload) });
+    if (!data.success) { alert(data.message || 'Erro ao criar sala.'); return; }
+    e.target.reset();
+    flashLink('Link do aluno (mostrado apenas uma vez — copie agora)', location.origin + data.studentLink);
+    loadRooms();
+  });
+
+  function flashLink(label, url) {
+    const box = document.createElement('div');
+    box.className = 'panel-section';
+    box.innerHTML = `<strong>${escapeHtml(label)}</strong><div class="link-box"><input readonly value="${escapeHtml(url)}" /><button class="small-btn" data-copy>Copiar</button><button class="small-btn secondary-btn" data-dismiss>Fechar</button></div>`;
+    box.querySelector('[data-copy]').addEventListener('click', () => navigator.clipboard.writeText(url));
+    box.querySelector('[data-dismiss]').addEventListener('click', () => box.remove());
+    document.getElementById('rooms-tab').prepend(box);
+  }
+
+  let roomsCache = [];
+  async function loadRooms() {
+    const data = await api('/rooms');
+    if (!data.success) return;
+    roomsCache = data.rooms;
+    renderRooms();
+  }
+
+  function renderRooms() {
+    const el = document.getElementById('rooms-list');
+    if (roomsCache.length === 0) { el.innerHTML = '<p class="list-empty">Nenhuma sala criada.</p>'; return; }
+
+    el.innerHTML = roomsCache.map((r) => `
+      <div class="item-row room-item" data-room-id="${r._id}">
+        <div class="room-item-header">
+          <strong>${escapeHtml(r.roomLabel)} — ${escapeHtml(r.studentName)}</strong>
+          <span class="badge badge-neutral"><span class="badge-dot"></span>${r.status}</span>
+        </div>
+        <div class="room-item-meta">${escapeHtml(r.examId && r.examId.name ? r.examId.name : '')} · ${r.proctorTokens.filter((t) => !t.revokedAt).length} fiscal(is) ativo(s)</div>
+        <div class="room-item-actions">
+          <button class="small-btn secondary-btn" data-add-proctor="${r._id}">+ Link do fiscal</button>
+          <button class="small-btn danger-btn" data-close-room="${r._id}">Encerrar sala</button>
+        </div>
+        <div class="room-item-actions" data-proctor-list>
+          ${r.proctorTokens.map((t) => `<span class="badge ${t.revokedAt ? 'badge-neutral' : 'badge-ok'}"><span class="badge-dot"></span>${escapeHtml(t.label)}${t.revokedAt ? ' (revogado)' : ''}</span>${t.revokedAt ? '' : `<button class="small-btn secondary-btn" data-revoke-token="${r._id}:${t._id}">Revogar</button>`}`).join('')}
+        </div>
+      </div>
+    `).join('');
+
+    el.querySelectorAll('[data-add-proctor]').forEach((btn) => btn.addEventListener('click', async () => {
+      const label = prompt('Rótulo do fiscal (ex.: Professor João):', 'Fiscal');
+      if (label === null) return;
+      const data = await api(`/rooms/${btn.dataset.addProctor}/proctor-tokens`, { method: 'POST', body: JSON.stringify({ label }) });
+      if (!data.success) { alert(data.message || 'Erro.'); return; }
+      flashLink(`Link do fiscal "${label}" (mostrado apenas uma vez)`, location.origin + data.proctorLink);
+      loadRooms();
+    }));
+    el.querySelectorAll('[data-close-room]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('Encerrar esta sala? O aluno e os fiscais serão desconectados.')) return;
+      await api(`/rooms/${btn.dataset.closeRoom}/close`, { method: 'POST' });
+      loadRooms();
+    }));
+    el.querySelectorAll('[data-revoke-token]').forEach((btn) => btn.addEventListener('click', async () => {
+      const [roomId, tokenId] = btn.dataset.revokeToken.split(':');
+      await api(`/rooms/${roomId}/proctor-tokens/${tokenId}`, { method: 'DELETE' });
+      loadRooms();
+    }));
+  }
+
+  // ---------------- Resultados & auditoria ----------------
+  function renderResultsExamFilter() {
+    const sel = document.getElementById('results-exam-filter');
+    sel.innerHTML = '<option value="">Todas as provas</option>' + examsCache.map((e) => `<option value="${e._id}">${escapeHtml(e.name)}</option>`).join('');
+    sel.onchange = () => loadResults();
+  }
+
+  async function loadResults() {
+    const examId = document.getElementById('results-exam-filter').value;
+    const qs = examId ? `?examId=${examId}` : '';
+    const data = await api(`/results${qs}`);
+    if (!data.success) return;
+
+    const tbody = document.getElementById('results-tbody');
+    if (data.attempts.length === 0) { tbody.innerHTML = '<tr><td colspan="8" class="list-empty">Nenhum resultado ainda.</td></tr>'; return; }
+
+    tbody.innerHTML = data.attempts.map((a) => `
+      <tr>
+        <td>${escapeHtml(a.roomId ? a.roomId.studentName : a.studentName)}</td>
+        <td>${escapeHtml(a.examId ? a.examId.name : '')}</td>
+        <td>${a.status === 'in_progress' ? '—' : a.score}</td>
+        <td>${a.status === 'in_progress' ? '—' : a.correctCount}</td>
+        <td>${a.status === 'in_progress' ? '—' : a.wrongCount}</td>
+        <td>${fmtDate(a.startedAt)}</td>
+        <td><span class="badge ${a.status === 'in_progress' ? 'badge-warn' : 'badge-ok'}"><span class="badge-dot"></span>${a.status}</span></td>
+        <td><button class="small-btn secondary-btn" data-detail="${a._id}">Detalhes</button></td>
+      </tr>
+    `).join('');
+
+    tbody.querySelectorAll('[data-detail]').forEach((btn) => btn.addEventListener('click', () => openDetail(btn.dataset.detail)));
+  }
+
+  async function openDetail(attemptId, filter = 'all') {
+    const qs = filter !== 'all' ? `?filter=${filter}` : '';
+    const data = await api(`/results/${attemptId}${qs}`);
+    if (!data.success) { alert(data.message); return; }
+
+    const a = data.attempt;
+    const summary = `
+      <div class="detail-grid">
+        <div class="stat-card"><div class="stat-value">${a.score}</div><div class="stat-label">Nota</div></div>
+        <div class="stat-card"><div class="stat-value">${a.correctCount}</div><div class="stat-label">Acertos</div></div>
+        <div class="stat-card"><div class="stat-value">${a.wrongCount}</div><div class="stat-label">Erros</div></div>
+        <div class="stat-card"><div class="stat-value">${a.unansweredCount}</div><div class="stat-label">Não respondidas</div></div>
+        <div class="stat-card"><div class="stat-value">${fmtDuration(a.totalFocusLossMs)}</div><div class="stat-label">Tempo fora da tela</div></div>
+        <div class="stat-card"><div class="stat-value">${(a.streamEvents || []).filter((s) => s.type === 'interrupted').length}</div><div class="stat-label">Interrupções de transmissão</div></div>
+      </div>
+      <p class="hint">Início: ${fmtDate(a.startedAt)} · Fim: ${fmtDate(a.finishedAt)}</p>
+      <div class="audit-filters">
+        ${['all', 'correct', 'wrong', 'unanswered'].map((f) => `<button class="small-btn ${f === filter ? '' : 'secondary-btn'}" data-filter="${f}">${{ all: 'Todas', correct: 'Corretas', wrong: 'Erradas', unanswered: 'Não respondidas' }[f]}</button>`).join('')}
+      </div>
+      <div id="audit-questions"></div>
+    `;
+
+    document.getElementById('modal-content').innerHTML = summary;
+    document.getElementById('audit-questions').innerHTML = data.questions.map((q) => `
+      <div class="audit-question">
+        <div class="q-order">Questão ${q.order}</div>
+        <div class="q-text">${escapeHtml(q.text)}</div>
+        ${q.options.map((o) => `<div class="audit-option ${o.key === q.selectedKey ? 'is-selected' : ''} ${o.key === q.correctKey ? 'is-correct' : ''}">${o.key} — ${escapeHtml(o.text)}${o.key === q.correctKey ? ' (gabarito)' : ''}${o.key === q.selectedKey ? ' ← resposta do aluno' : ''}</div>`).join('')}
+        <p class="hint" style="margin-top:6px">${q.isCorrect === null ? 'Não respondida' : q.isCorrect ? '🟢 CORRETA' : '🔴 ERRADA'}${q.answeredAt ? ' · ' + fmtDate(q.answeredAt) : ''}</p>
+      </div>
+    `).join('');
+
+    document.getElementById('modal-content').querySelectorAll('[data-filter]').forEach((btn) => btn.addEventListener('click', () => openDetail(attemptId, btn.dataset.filter)));
+
+    document.getElementById('detail-modal-backdrop').classList.remove('hidden');
+  }
+
+  document.getElementById('close-modal-btn').addEventListener('click', () => document.getElementById('detail-modal-backdrop').classList.add('hidden'));
+
+  // ---------------- Segurança ----------------
+  async function loadSecurityLogs() {
+    const data = await api('/security-logs');
+    if (!data.success) return;
+    const tbody = document.getElementById('security-logs-tbody');
+    tbody.innerHTML = data.logs.map((l) => `
+      <tr><td>${fmtDate(l.at)}</td><td>${escapeHtml(l.type)}</td><td>${escapeHtml(l.ip || '—')}</td><td>${escapeHtml(JSON.stringify(l.meta || {}))}</td></tr>
+    `).join('') || '<tr><td colspan="4" class="list-empty">Sem eventos.</td></tr>';
+  }
+
+  // ---------------- Boot ----------------
+  loadRoomsOnTabOpen();
+  function loadRoomsOnTabOpen() {
+    document.querySelector('[data-tab="rooms-tab"]').addEventListener('click', loadRooms);
+  }
+
+  checkSession();
+})();

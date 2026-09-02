@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Painel Administrativo — Provas Live</title>
+  <link rel="stylesheet" href="/shared/base.css" />
+  <link rel="stylesheet" href="/admin/styles.css" />
+</head>
+<body>
+
+  <div id="login-screen" class="screen center-screen">
+    <div class="card">
+      <p class="logo-text">💜 PROVAS LIVE</p>
+      <h2>Painel Administrativo</h2>
+      <form id="login-form">
+        <label>Usuário</label>
+        <input id="login-username" type="text" autocomplete="username" required />
+        <label>Senha</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+        <button type="submit">Entrar</button>
+      </form>
+      <p class="error-msg" id="login-error"></p>
+    </div>
+  </div>
+
+  <div id="app-screen" class="screen hidden">
+    <div class="app-main" style="max-width:1200px;margin:0 auto;">
+      <div class="top-nav">
+        <div class="brand">💜 PROVAS LIVE — Admin</div>
+        <div>
+          <span class="hint" id="admin-username" style="margin:0 12px 0 0"></span>
+          <button class="secondary-btn small-btn" id="logout-btn" style="margin:0">Sair</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="dashboard-tab">Dashboard</button>
+        <button class="tab-btn" data-tab="exams-tab">Provas &amp; Questões</button>
+        <button class="tab-btn" data-tab="rooms-tab">Salas</button>
+        <button class="tab-btn" data-tab="results-tab">Resultados</button>
+        <button class="tab-btn" data-tab="security-tab">Segurança &amp; Auditoria</button>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div id="dashboard-tab" class="tab-panel">
+        <div class="panel-grid" id="dashboard-stats" style="margin-bottom:24px"></div>
+        <div class="panel-section">
+          <h3>Salas ao vivo</h3>
+          <div id="live-rooms-list" class="list-plain"><p class="list-empty">Nenhuma sala com atividade no momento.</p></div>
+        </div>
+      </div>
+
+      <!-- PROVAS & QUESTÕES -->
+      <div id="exams-tab" class="tab-panel hidden">
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Configurações da plataforma</h3></div>
+          <form id="settings-form" class="inline-form" style="margin-bottom:10px">
+            <input id="settings-platform-name" placeholder="Nome da plataforma" />
+            <input id="settings-intro-video" placeholder="ID do vídeo introdutório padrão (YouTube)" />
+            <button type="submit" class="small-btn">Salvar</button>
+          </form>
+          <form id="settings-logo-form" class="inline-form">
+            <input type="file" id="settings-logo-file" accept="image/png,image/jpeg,image/webp" />
+            <button type="submit" class="small-btn secondary-btn">Enviar logo</button>
+          </form>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Provas</h3></div>
+          <form id="exam-form" class="inline-form" style="margin-bottom:14px">
+            <input id="exam-name" placeholder="Nome da prova" required />
+            <input id="exam-question-count" type="number" placeholder="Nº questões" value="50" min="1" style="max-width:110px" />
+            <input id="exam-points" type="number" placeholder="Pontos/questão" value="2" min="0" step="0.5" style="max-width:120px" />
+            <input id="exam-duration" type="number" placeholder="Duração (min)" value="120" min="1" style="max-width:130px" />
+            <input id="exam-intro-video" placeholder="Vídeo intro (ID YouTube, opcional)" />
+            <button type="submit" class="small-btn">Criar prova</button>
+          </form>
+          <div id="exams-list" class="list-plain"></div>
+        </div>
+
+        <div class="panel-section hidden" id="questions-section">
+          <div class="panel-section-header">
+            <h3>Banco de questões — <span id="questions-exam-name"></span></h3>
+            <button class="ghost-btn small-btn" id="new-question-btn">+ Nova questão</button>
+          </div>
+          <div id="questions-list" class="list-plain"></div>
+        </div>
+      </div>
+
+      <!-- SALAS -->
+      <div id="rooms-tab" class="tab-panel hidden">
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Criar sala</h3></div>
+          <form id="room-form" class="inline-form">
+            <select id="room-exam-select"></select>
+            <input id="room-label" placeholder="Identificação (ex.: Sala 01)" required />
+            <input id="room-student-name" placeholder="Nome completo do aluno" required />
+            <button type="submit" class="small-btn">Criar sala</button>
+          </form>
+        </div>
+        <div class="panel-section">
+          <h3>Salas</h3>
+          <div id="rooms-list" class="list-plain"></div>
+        </div>
+      </div>
+
+      <!-- RESULTADOS -->
+      <div id="results-tab" class="tab-panel hidden">
+        <div class="panel-section">
+          <div class="panel-section-header">
+            <h3>Resultados</h3>
+            <select id="results-exam-filter" style="max-width:220px"></select>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Aluno</th><th>Prova</th><th>Nota</th><th>Acertos</th><th>Erros</th><th>Início</th><th>Status</th><th></th></tr></thead>
+              <tbody id="results-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- SEGURANÇA -->
+      <div id="security-tab" class="tab-panel hidden">
+        <div class="panel-section">
+          <h3>Logs de segurança</h3>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Quando</th><th>Tipo</th><th>IP</th><th>Detalhes</th></tr></thead>
+              <tbody id="security-logs-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="detail-modal-backdrop" class="modal-backdrop hidden">
+    <div class="card wide" style="text-align:left;max-height:85vh;overflow-y:auto">
+      <div class="panel-section-header"><h3>Detalhes da tentativa</h3><button class="secondary-btn small-btn" id="close-modal-btn" style="margin:0">Fechar</button></div>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/admin/client.js"></script>
+</body>
+</html>

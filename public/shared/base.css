@@ -1,0 +1,232 @@
+/* Identidade visual reaproveitada do UPS FLUXO LIVE — mesma paleta
+   roxo/magenta escuro, cards, tipografia e componentes, para que este
+   sistema pareça uma evolução direta daquele. */
+:root {
+  --bg-0: #0a0412;
+  --bg-1: #150a20;
+  --bg-card: #1a0f26;
+  --bg-input: #241830;
+  --bg-item: #221430;
+  --border: #4a2a6d;
+  --border-soft: #3a2050;
+  --text: #f0f0f0;
+  --text-muted: #b0b0bb;
+  --text-soft: #8a7599;
+  --text-lilac: #d9c5ea;
+  --accent-1: #e879f9;
+  --accent-2: #a855f7;
+  --accent-3: #7c3aed;
+  --danger: #f87171;
+  --danger-bg: #3a1424;
+  --danger-border: #6d2a3f;
+  --warning: #fbbf24;
+  --success: #34d399;
+  --radius-lg: 16px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background: linear-gradient(180deg, rgba(10, 4, 18, 0.92), rgba(10, 4, 18, 0.97)), url('/shared/logo-bg.png') center center / cover no-repeat fixed;
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.hidden { display: none !important; }
+.screen { min-height: 100vh; }
+
+.center-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 40px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 0 40px rgba(168, 85, 247, 0.15);
+}
+
+.card.wide { max-width: 640px; }
+
+.logo-text {
+  font-size: 30px;
+  font-weight: 800;
+  margin: 0 0 24px;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, var(--accent-1), var(--accent-2), var(--accent-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+h1, h2, h3 { margin: 0 0 12px; }
+p { line-height: 1.5; }
+
+form { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+form label { font-size: 13px; color: var(--text-muted); margin-top: 10px; }
+form input, form select, form textarea {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  color: #fff;
+  font-size: 15px;
+  font-family: inherit;
+}
+form input:focus, form select:focus, form textarea:focus { outline: 2px solid var(--accent-2); border-color: transparent; }
+
+button {
+  background: linear-gradient(135deg, var(--accent-2), var(--accent-3));
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 18px;
+  font-family: inherit;
+}
+button:hover { background: linear-gradient(135deg, #9333ea, #6d28d9); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.secondary-btn { background: var(--bg-input); border: 1px solid var(--border); }
+.secondary-btn:hover { background: #2f1e3d; }
+
+.ghost-btn { background: transparent; border: 1px solid var(--border-soft); color: #b39ac9; }
+.ghost-btn:hover { background: #1c1128; }
+
+.danger-btn { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+.danger-btn:hover { background: linear-gradient(135deg, #b91c1c, #991b1b); }
+
+.small-btn { padding: 8px 12px; font-size: 13px; margin-top: 0; }
+
+.back-btn {
+  background: transparent; border: none; color: var(--text-soft);
+  font-size: 12px; font-weight: 500; padding: 6px; margin-top: 14px;
+  text-decoration: underline; cursor: pointer;
+}
+.back-btn:hover { background: transparent; color: #b39ac9; }
+
+.error-msg { color: var(--danger); font-size: 13px; margin: 12px 0 0; min-height: 16px; }
+.hint { color: var(--text-soft); font-size: 12px; margin-top: 18px; line-height: 1.5; }
+.site-signature { color: #6b5a7a; font-size: 11px; text-align: center; margin-top: 24px; }
+
+/* Badges de status */
+.badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+.badge-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.badge-ok { background: #16351f; color: var(--success); }
+.badge-ok .badge-dot { background: var(--success); }
+.badge-warn { background: #3a2b1b; color: var(--warning); }
+.badge-warn .badge-dot { background: var(--warning); }
+.badge-danger { background: var(--danger-bg); color: var(--danger); }
+.badge-danger .badge-dot { background: var(--danger); }
+.badge-neutral { background: #241830; color: var(--text-muted); }
+.badge-neutral .badge-dot { background: var(--text-muted); }
+
+/* Layout com sidebar (reaproveitado da sala do UPS FLUXO LIVE) */
+.app-layout { display: flex; min-height: 100vh; }
+.app-main { flex: 1; padding: 24px; overflow-y: auto; }
+.app-sidebar {
+  width: 280px;
+  background: var(--bg-1);
+  border-left: 1px solid var(--border-soft);
+  padding: 20px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.app-sidebar h3 { font-size: 16px; }
+.app-sidebar h4 { margin: 20px 0 10px; font-size: 12px; color: #b39ac9; text-transform: uppercase; letter-spacing: 0.05em; }
+
+@media (max-width: 900px) {
+  .app-layout { flex-direction: column; }
+  .app-sidebar { width: 100%; border-left: none; border-top: 1px solid var(--border-soft); }
+}
+
+/* Cards de painel/admin */
+.panel-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px;
+  margin-bottom: 20px;
+}
+.panel-section h3 { font-size: 15px; margin: 0 0 14px; }
+.panel-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.panel-section-header h3 { margin: 0; }
+
+.panel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+
+.stat-card {
+  background: var(--bg-item);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+.stat-card .stat-value { font-size: 28px; font-weight: 800; color: #fff; }
+.stat-card .stat-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+.list-plain { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.list-empty { color: #6b5a7a; font-size: 13px; padding: 10px 0; }
+
+.item-row {
+  background: var(--bg-item);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+
+.inline-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.inline-form input, .inline-form select { flex: 1; min-width: 120px; margin-top: 0; }
+.inline-form button { margin-top: 0; padding: 10px 16px; font-size: 14px; }
+
+table.data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.data-table th, table.data-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); }
+table.data-table th { color: var(--text-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+table.data-table tr:hover { background: rgba(168, 85, 247, 0.06); }
+.table-scroll { overflow-x: auto; }
+
+.top-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.top-nav .brand { font-size: 20px; font-weight: 800; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.tab-btn {
+  margin-top: 0; padding: 9px 16px; font-size: 13px;
+  background: var(--bg-input); border: 1px solid var(--border); color: #b39ac9;
+}
+.tab-btn.active { background: linear-gradient(135deg, var(--accent-2), var(--accent-3)); color: #fff; border-color: transparent; }
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(5, 2, 10, 0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+}
+
+.link-box {
+  display: flex; gap: 8px; align-items: center; margin-top: 10px;
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+}
+.link-box input { flex: 1; background: transparent; border: none; color: var(--text-lilac); font-size: 12px; padding: 4px; }
+.link-box button { margin: 0; padding: 6px 10px; font-size: 12px; }

@@ -1,0 +1,36 @@
+.tab-panel.hidden { display: none; }
+
+.room-item { flex-direction: column; align-items: stretch; }
+.room-item-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.room-item-meta { color: var(--text-muted); font-size: 12px; }
+.room-item-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.room-item-actions button { margin: 0; }
+
+.question-item { flex-direction: column; align-items: stretch; }
+.question-item .q-text { font-weight: 600; margin-bottom: 6px; }
+.question-item .q-options { color: var(--text-muted); font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.question-item .q-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.question-item .q-actions button { margin: 0; }
+.q-options .correct { color: var(--success); font-weight: 700; }
+
+.question-form { display: flex; flex-direction: column; gap: 8px; background: var(--bg-item); padding: 14px; border-radius: 10px; margin-bottom: 10px; }
+.question-form .opt-row { display: flex; gap: 8px; align-items: center; }
+.question-form .opt-row input[type="text"] { flex: 1; margin: 0; }
+.question-form .opt-row input[type="radio"] { width: 18px; height: 18px; }
+.question-form button { margin-top: 6px; }
+
+.live-room-card { flex-direction: column; align-items: stretch; }
+.live-room-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.live-room-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.detail-grid .stat-card { padding: 10px 12px; }
+.detail-grid .stat-value { font-size: 18px; }
+
+.audit-filters { display: flex; gap: 8px; margin-bottom: 14px; }
+.audit-question { background: var(--bg-item); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+.audit-question .q-order { font-size: 12px; color: var(--text-muted); }
+.audit-question .q-text { font-weight: 600; margin: 4px 0 8px; }
+.audit-option { padding: 6px 10px; border-radius: 6px; font-size: 13px; margin-bottom: 4px; background: var(--bg-input); }
+.audit-option.is-selected { border: 1px solid var(--accent-2); }
+.audit-option.is-correct { border: 1px solid var(--success); }

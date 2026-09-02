@@ -145,6 +145,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .badge-neutral { background: #241830; color: var(--text-muted); }
 .badge-neutral .badge-dot { background: var(--text-muted); }
 
+.conn-status { position: fixed; top: 10px; right: 10px; z-index: 9999; box-shadow: 0 2px 10px rgba(0,0,0,0.35); }
+
 /* Layout com sidebar (reaproveitado da sala do UPS FLUXO LIVE) */
 .app-layout { display: flex; min-height: 100vh; }
 .app-main { flex: 1; padding: 24px; overflow-y: auto; }

@@ -86,15 +86,28 @@
   });
 
   // ---------- Socket ----------
+  // Indicador sempre visível (sem precisar abrir o DevTools) de que o
+  // navegador do aluno realmente conseguiu abrir uma conexão com o
+  // servidor — essencial para diferenciar "o aluno nunca conectou" de "o
+  // aluno conectou mas o fiscal não foi avisado" ao investigar falhas de
+  // transmissão relatadas em campo.
+  function setConnBadge(text, cls) {
+    const el = document.getElementById('conn-status');
+    el.classList.remove('hidden');
+    el.className = `badge ${cls} conn-status`;
+    el.innerHTML = `<span class="badge-dot"></span>${text}`;
+  }
+
   function connectSocket() {
     socket = io();
     window.StudentWebRTC.bindSocket(socket);
+    setConnBadge('Conectando ao servidor...', 'badge-neutral');
 
-    socket.on('connect', () => console.log(`[socket] conectado. id=${socket.id}`));
-    socket.on('disconnect', (reason) => console.log(`[socket] desconectado. motivo="${reason}"`));
-    socket.on('reconnect_attempt', (n) => console.log(`[socket] tentando reconectar (tentativa ${n})...`));
-    socket.on('reconnect', (n) => console.log(`[socket] reconectado após ${n} tentativa(s). novo id=${socket.id}`));
-    socket.on('connect_error', (err) => console.error('[socket] connect_error', err.message));
+    socket.on('connect', () => { console.log(`[socket] conectado. id=${socket.id}`); setConnBadge('Conectado ao servidor', 'badge-ok'); });
+    socket.on('disconnect', (reason) => { console.log(`[socket] desconectado. motivo="${reason}"`); setConnBadge(`Sem conexão (${reason})`, 'badge-danger'); });
+    socket.on('reconnect_attempt', (n) => { console.log(`[socket] tentando reconectar (tentativa ${n})...`); setConnBadge(`Reconectando... (tentativa ${n})`, 'badge-warn'); });
+    socket.on('reconnect', (n) => { console.log(`[socket] reconectado após ${n} tentativa(s). novo id=${socket.id}`); setConnBadge('Conectado ao servidor', 'badge-ok'); });
+    socket.on('connect_error', (err) => { console.error('[socket] connect_error', err.message); setConnBadge('Erro ao conectar ao servidor', 'badge-danger'); });
     socket.on('auth:error', () => showError('Sua sessão expirou. Acesse novamente pelo link da sua sala.'));
     socket.on('room:closed', () => {
       cleanupAndStop();

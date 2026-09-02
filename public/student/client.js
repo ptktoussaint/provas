@@ -90,7 +90,11 @@
     socket = io();
     window.StudentWebRTC.bindSocket(socket);
 
-    socket.on('connect_error', (err) => console.error('[socket] connect_error', err));
+    socket.on('connect', () => console.log(`[socket] conectado. id=${socket.id}`));
+    socket.on('disconnect', (reason) => console.log(`[socket] desconectado. motivo="${reason}"`));
+    socket.on('reconnect_attempt', (n) => console.log(`[socket] tentando reconectar (tentativa ${n})...`));
+    socket.on('reconnect', (n) => console.log(`[socket] reconectado após ${n} tentativa(s). novo id=${socket.id}`));
+    socket.on('connect_error', (err) => console.error('[socket] connect_error', err.message));
     socket.on('auth:error', () => showError('Sua sessão expirou. Acesse novamente pelo link da sua sala.'));
     socket.on('room:closed', () => {
       cleanupAndStop();

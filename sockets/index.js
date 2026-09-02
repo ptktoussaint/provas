@@ -12,15 +12,28 @@ const STREAM_STATUS_VALUES = new Set([
 const RENEGOTIATE_MAX_ATTEMPTS = 5;
 const RENEGOTIATE_WINDOW_MS = 2 * 60 * 1000;
 
+// Log de diagnóstico do lado do servidor — sem isso não dá pra saber se o
+// aluno/fiscal realmente estão registrados como "online" no liveState no
+// momento em que o outro lado conecta, que é exatamente o ponto onde a
+// notificação de "novo viewer" pode estar se perdendo.
+function slog(...args) {
+  console.log(`[sockets ${new Date().toISOString()}]`, ...args);
+}
+
 // Resolve o papel da conexão a partir da SESSÃO do servidor (nunca de um
 // campo que o cliente possa declarar) — requisito #42.
 function resolveRole(socket) {
   const session = socket.request.session;
-  if (session?.admin) return { role: 'admin' };
-  if (session?.student?.roomId) return { role: 'student', roomId: session.student.roomId };
-  if (session?.proctor?.roomId) {
+  if (!session) {
+    slog('resolveRole: socket sem session nenhuma (cookie não chegou ou não foi parseado)', socket.id);
+    return null;
+  }
+  if (session.admin) return { role: 'admin' };
+  if (session.student?.roomId) return { role: 'student', roomId: session.student.roomId };
+  if (session.proctor?.roomId) {
     return { role: 'proctor', roomId: session.proctor.roomId, proctorTokenId: session.proctor.proctorTokenId };
   }
+  slog('resolveRole: session existe mas sem admin/student/proctor válido', socket.id, JSON.stringify(session));
   return null;
 }
 
@@ -50,6 +63,7 @@ function registerStudent(io, socket, room) {
     studentSocketId: socket.id,
     studentOnline: true,
   });
+  slog(`ALUNO registrado ONLINE. roomId=${roomId} socketId=${socket.id}`);
 
   io.to(`room:${roomId}`).except(socket.id).emit('student:online');
   logExamEvent({ roomId, actor: 'student', type: 'student_connected' });
@@ -58,11 +72,14 @@ function registerStudent(io, socket, room) {
   // anterior dele foi perdido. Reapresentamos os fiscais já presentes para
   // que ele crie conexões novas para cada um (mesmo fluxo de "novo viewer").
   const liveRoom = liveState.getRoom(roomId);
+  slog(`ALUNO conectado encontrou ${liveRoom.proctors.size} fiscal(is) já presente(s) em roomId=${roomId}:`, Array.from(liveRoom.proctors.keys()));
   for (const [viewerId] of liveRoom.proctors) {
     socket.emit('viewer:joined', { viewerId, connectionId: viewerId });
+    slog(`-> viewer:joined reenviado ao aluno para viewerId=${viewerId}`);
   }
 
   safeOn(socket, 'webrtc:offer', ({ viewerId, sdp }) => {
+    slog(`ALUNO enviou webrtc:offer para viewerId=${viewerId}. proctor conhecido? ${liveRoom.proctors.has(viewerId)}`);
     if (!liveRoom.proctors.has(viewerId)) return;
     io.to(viewerId).emit('webrtc:offer', { viewerId, connectionId: viewerId, sdp });
   });
@@ -109,14 +126,18 @@ function registerStudent(io, socket, room) {
     await logExamEvent({ roomId, attemptId: room.currentAttemptId, actor: 'student', type: `focus_${type}` });
   });
 
-  safeOn(socket, 'disconnect', async () => {
+  safeOn(socket, 'disconnect', async (reason) => {
+    slog(`ALUNO desconectou. roomId=${roomId} socketId=${socket.id} motivo="${reason}"`);
     const current = liveState.getRoom(roomId);
     if (current && current.studentSocketId === socket.id) {
       liveState.patch(roomId, { studentOnline: false, studentSocketId: null, streamStatus: 'interrupted' });
+      slog(`ALUNO marcado OFFLINE (era o socket ativo). roomId=${roomId}`);
+    } else {
+      slog(`ALUNO desconectou mas socketId não era o ativo registrado (${current?.studentSocketId}) — não alterando studentOnline. roomId=${roomId}`);
     }
     io.to(`room:${roomId}`).emit('student:disconnected');
     io.to('admins').emit('alert', { roomId, type: 'student_disconnected', at: Date.now() });
-    await logExamEvent({ roomId, actor: 'student', type: 'student_disconnected' });
+    await logExamEvent({ roomId, actor: 'student', type: 'student_disconnected', meta: { reason } });
   });
 }
 
@@ -135,10 +156,14 @@ function registerProctor(io, socket, room, proctorTokenId) {
   logExamEvent({ roomId, actor: 'proctor', type: 'proctor_connected', meta: { viewerId } });
 
   const liveRoom = liveState.getRoom(roomId);
+  slog(`FISCAL conectado. roomId=${roomId} viewerId=${viewerId} — studentOnline=${liveRoom.studentOnline} studentSocketId=${liveRoom.studentSocketId}`);
   if (liveRoom.studentOnline && liveRoom.studentSocketId) {
     // Entrada tardia (requisito #16): pedimos ao aluno para negociar com
     // este viewer específico, qualquer que seja o momento em que ele entrou.
     io.to(liveRoom.studentSocketId).emit('viewer:joined', { viewerId, connectionId: viewerId });
+    slog(`-> viewer:joined enviado ao aluno (${liveRoom.studentSocketId}) para novo fiscal viewerId=${viewerId}`);
+  } else {
+    slog(`-> NÃO enviado viewer:joined: servidor não considera o aluno online neste momento. roomId=${roomId}`);
   }
 
   safeOn(socket, 'webrtc:answer', ({ sdp }) => {
@@ -160,19 +185,26 @@ function registerProctor(io, socket, room, proctorTokenId) {
   safeOn(socket, 'webrtc:request-renegotiate', () => {
     const current = liveState.getRoom(roomId);
     const proctorInfo = current?.proctors.get(viewerId);
-    if (!current?.studentSocketId || !proctorInfo) return;
+    slog(`FISCAL pediu request-renegotiate. roomId=${roomId} viewerId=${viewerId} studentSocketId=${current?.studentSocketId}`);
+    if (!current?.studentSocketId || !proctorInfo) {
+      slog('-> ignorado: sem aluno online ou proctorInfo não encontrado');
+      return;
+    }
 
     const now = Date.now();
     proctorInfo.renegotiateAttempts = proctorInfo.renegotiateAttempts.filter((t) => now - t < RENEGOTIATE_WINDOW_MS);
     if (proctorInfo.renegotiateAttempts.length >= RENEGOTIATE_MAX_ATTEMPTS) {
+      slog('-> backoff esgotado, enviando webrtc:renegotiate-exhausted');
       socket.emit('webrtc:renegotiate-exhausted');
       return;
     }
     proctorInfo.renegotiateAttempts.push(now);
     io.to(current.studentSocketId).emit('request-renegotiate', { viewerId });
+    slog(`-> request-renegotiate repassado ao aluno para viewerId=${viewerId}`);
   });
 
-  safeOn(socket, 'disconnect', () => {
+  safeOn(socket, 'disconnect', (reason) => {
+    slog(`FISCAL desconectou. roomId=${roomId} viewerId=${viewerId} motivo="${reason}"`);
     liveState.removeProctor(roomId, viewerId);
     const current = liveState.getRoom(roomId);
     if (current?.studentSocketId) {
@@ -180,7 +212,7 @@ function registerProctor(io, socket, room, proctorTokenId) {
       // especificamente, sem afetar as demais (requisitos #17, #31).
       io.to(current.studentSocketId).emit('viewer:left', { viewerId });
     }
-    logExamEvent({ roomId, actor: 'proctor', type: 'proctor_disconnected', meta: { viewerId } });
+    logExamEvent({ roomId, actor: 'proctor', type: 'proctor_disconnected', meta: { viewerId, reason } });
   });
 }
 
@@ -190,13 +222,16 @@ function initSockets(io) {
   });
 
   io.on('connection', (socket) => {
+    slog(`nova conexão socket.id=${socket.id}`);
     Promise.resolve().then(async () => {
       const resolved = resolveRole(socket);
       if (!resolved) {
+        slog(`socket.id=${socket.id} sem papel resolvido — desconectando (auth:error)`);
         socket.emit('auth:error', { message: 'Sessão inválida ou expirada.' });
         socket.disconnect(true);
         return;
       }
+      slog(`socket.id=${socket.id} resolvido como role=${resolved.role} roomId=${resolved.roomId || '-'}`);
 
       if (resolved.role === 'admin') {
         registerAdmin(io, socket);
@@ -205,6 +240,7 @@ function initSockets(io) {
 
       const room = await Room.findById(resolved.roomId);
       if (!room || room.status === 'closed') {
+        slog(`socket.id=${socket.id} roomId=${resolved.roomId} sala não encontrada ou encerrada (status=${room?.status})`);
         socket.emit('auth:error', { message: 'Sala não encontrada ou encerrada.' });
         socket.disconnect(true);
         return;

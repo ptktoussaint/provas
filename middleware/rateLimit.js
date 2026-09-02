@@ -18,12 +18,18 @@ const identifyLimiter = rateLimit({
   message: { success: false, message: 'Muitas tentativas. Aguarde alguns minutos.' },
 });
 
+// Depois de identificado, a sessão já sabe a sala do aluno — contar por
+// sala em vez de por IP evita que várias provas simultâneas atrás do
+// mesmo IP (ex.: mesma rede/NAT) compartilhem sem querer um único balde de
+// limite. Some com o IP como chave de fallback só para requisições sem
+// sessão (não deveria acontecer, pois a rota exige requireStudentSession).
 const answerLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Muitas requisições — aguarde um instante.' },
+  keyGenerator: (req) => req.session?.student?.roomId || req.ip,
 });
 
 const adminApiLimiter = rateLimit({

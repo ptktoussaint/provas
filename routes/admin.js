@@ -381,6 +381,25 @@ router.post('/rooms', async (req, res) => {
   });
 });
 
+// O link do aluno só é mostrado uma vez na criação (só o hash fica salvo —
+// nunca o token em texto puro, mesmo princípio de senha). Se o admin
+// perdeu o link, a única forma seguridade de recuperar o acesso é emitir
+// um token novo, invalidando o antigo. Isso NÃO desconecta um aluno que já
+// estava em prova: a sessão dele já guarda o roomId, não o token.
+router.post('/rooms/:roomId/regenerate-student-link', async (req, res) => {
+  const { roomId } = req.params;
+  if (!isValidObjectId(roomId)) return res.status(400).json({ success: false, message: 'ID inválido.' });
+  const room = await Room.findById(roomId);
+  if (!room) return res.status(404).json({ success: false, message: 'Sala não encontrada.' });
+
+  const rawToken = generateToken();
+  room.studentTokenHash = hashToken(rawToken);
+  await room.save();
+  await logSecurityEvent('student_link_regenerated_by_admin', { meta: { roomId }, ip: req.ip });
+
+  res.json({ success: true, studentLink: `/aluno/${rawToken}` });
+});
+
 router.post('/rooms/:roomId/proctor-tokens', async (req, res) => {
   const { roomId } = req.params;
   if (!isValidObjectId(roomId)) return res.status(400).json({ success: false, message: 'ID inválido.' });

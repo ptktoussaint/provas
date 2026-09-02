@@ -179,8 +179,26 @@
           <span class="badge badge-neutral"><span class="badge-dot"></span>${timeLabel} restante</span>
           <span class="badge badge-neutral"><span class="badge-dot"></span>${r.proctorCount} fiscal(is)</span>
         </div>
+        <div class="live-room-badges">
+          <button class="small-btn secondary-btn" data-live-student-link="${r.roomId}">🔗 Link do aluno</button>
+          <button class="small-btn secondary-btn" data-live-add-proctor="${r.roomId}">+ Link do fiscal</button>
+        </div>
       </div>`;
     }).join('');
+
+    el.querySelectorAll('[data-live-student-link]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('Isso gera um novo link do aluno e invalida o link anterior (quem já estiver na prova NÃO é desconectado). Continuar?')) return;
+      const data = await api(`/rooms/${btn.dataset.liveStudentLink}/regenerate-student-link`, { method: 'POST' });
+      if (!data.success) { alert(data.message || 'Erro.'); return; }
+      flashLink('Link do aluno (mostrado apenas uma vez — copie agora)', location.origin + data.studentLink);
+    }));
+    el.querySelectorAll('[data-live-add-proctor]').forEach((btn) => btn.addEventListener('click', async () => {
+      const label = prompt('Rótulo do fiscal (ex.: Professor João):', 'Fiscal');
+      if (label === null) return;
+      const data = await api(`/rooms/${btn.dataset.liveAddProctor}/proctor-tokens`, { method: 'POST', body: JSON.stringify({ label }) });
+      if (!data.success) { alert(data.message || 'Erro.'); return; }
+      flashLink(`Link do fiscal "${label}" (mostrado apenas uma vez)`, location.origin + data.proctorLink);
+    }));
   }
 
   // ---------------- Configurações da plataforma e identidade visual ----------------
@@ -482,7 +500,10 @@
       <div class="link-box"><input readonly value="${escapeHtml(url)}" /><button class="small-btn" data-copy>Copiar</button></div>`;
     box.querySelector('[data-copy]').addEventListener('click', () => navigator.clipboard.writeText(url));
     box.querySelector('[data-dismiss]').addEventListener('click', () => box.remove());
-    document.getElementById('rooms-tab').prepend(box);
+    // Prepende na aba visível no momento — os botões de link aparecem tanto
+    // na aba "Salas" quanto nos cartões da aba "Dashboard" (salas ao vivo).
+    const activeTab = document.querySelector('.tab-panel:not(.hidden)') || document.getElementById('rooms-tab');
+    activeTab.prepend(box);
   }
 
   let roomsCache = [];
@@ -509,6 +530,7 @@
         </div>
         <div class="room-item-meta">${escapeHtml(r.examId && r.examId.name ? r.examId.name : '')} · ${activeTokens.length} fiscal(is) ativo(s)</div>
         <div class="room-item-actions">
+          <button class="small-btn secondary-btn" data-get-student-link="${r._id}">🔗 Link do aluno</button>
           <button class="small-btn secondary-btn" data-add-proctor="${r._id}">+ Link do fiscal</button>
           ${r.status !== 'closed' ? `<button class="small-btn danger-btn" data-close-room="${r._id}">Encerrar sala</button>` : ''}
           <button class="small-btn danger-btn" data-delete-room="${r._id}" title="Excluir sala e histórico">✕ Excluir sala</button>
@@ -519,6 +541,12 @@
       </div>`;
     }).join('');
 
+    el.querySelectorAll('[data-get-student-link]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('Isso gera um novo link do aluno e invalida o link anterior (quem já estiver na prova NÃO é desconectado). Continuar?')) return;
+      const data = await api(`/rooms/${btn.dataset.getStudentLink}/regenerate-student-link`, { method: 'POST' });
+      if (!data.success) { alert(data.message || 'Erro.'); return; }
+      flashLink('Link do aluno (mostrado apenas uma vez — copie agora)', location.origin + data.studentLink);
+    }));
     el.querySelectorAll('[data-add-proctor]').forEach((btn) => btn.addEventListener('click', async () => {
       const label = prompt('Rótulo do fiscal (ex.: Professor João):', 'Fiscal');
       if (label === null) return;

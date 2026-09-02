@@ -3,7 +3,17 @@
 
   const screens = ['identify-screen', 'welcome-screen', 'intro-screen', 'share-screen', 'unsupported-screen', 'exam-screen', 'finished-screen', 'error-screen'];
   function showScreen(id) {
+    // Sair da tela do vídeo por qualquer caminho (botão, erro, sala
+    // encerrada) sempre para a reprodução — sem isto o <video> continuava
+    // tocando com áudio em segundo plano depois do aluno já ter avançado.
+    if (id !== 'intro-screen') stopIntroVideo();
     for (const s of screens) document.getElementById(s).classList.toggle('hidden', s !== id);
+  }
+
+  function stopIntroVideo() {
+    const frame = document.getElementById('intro-video-frame');
+    const video = frame && frame.querySelector('video');
+    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
   }
 
   function showError(message) {

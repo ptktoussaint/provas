@@ -33,7 +33,7 @@ router.post('/identify', identifyLimiter, async (req, res) => {
 
   res.json({
     success: true,
-    room: { roomLabel: room.roomLabel, studentName: room.studentName },
+    room: { roomLabel: room.roomLabel, studentName: room.studentName, roomId: room._id.toString() },
     exam: { name: exam ? exam.name : null },
   });
 });

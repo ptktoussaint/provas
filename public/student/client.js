@@ -49,6 +49,16 @@
     document.getElementById('intro-exam-name').textContent = data.exam.name;
     document.getElementById('intro-student-name').textContent = `${data.room.studentName} — ${data.room.roomLabel}`;
 
+    // Mostra os últimos dígitos do ID da sala de forma sempre visível — o
+    // fiscal e o aluno precisam estar na MESMA sala para a transmissão
+    // funcionar; comparar visualmente aqui resolve em segundos casos em que
+    // os dois links geraram/apontam para salas diferentes.
+    if (data.room.roomId) {
+      const idBadge = document.getElementById('room-id-badge');
+      idBadge.classList.remove('hidden');
+      idBadge.innerHTML = `<span class="badge-dot"></span>Sala #${data.room.roomId.slice(-6)}`;
+    }
+
     connectSocket();
 
     // Requisito #57: verificar suporte antes de deixar prosseguir.

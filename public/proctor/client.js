@@ -66,6 +66,12 @@
       document.getElementById('room-title').textContent = data.room.roomLabel;
       document.getElementById('room-sub').textContent = `Aluno: ${data.room.studentName}${data.exam.name ? ' — ' + data.exam.name : ''}`;
 
+      if (data.room.roomId) {
+        const idBadge = document.getElementById('room-id-badge');
+        idBadge.classList.remove('hidden');
+        idBadge.innerHTML = `<span class="badge-dot"></span>Sala #${data.room.roomId.slice(-6)}`;
+      }
+
       await window.ProctorWebRTC.fetchIceServers();
 
       window.ProctorWebRTC.onTrack((stream) => {

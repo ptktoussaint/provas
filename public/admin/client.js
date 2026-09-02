@@ -447,8 +447,13 @@
       const row = btn.closest('.item-row');
       const wrapper = document.createElement('div');
       wrapper.innerHTML = questionFormHtml(q);
-      row.replaceWith(wrapper.firstElementChild);
-      bindQuestionForm(wrapper.firstElementChild, q._id);
+      const formEl = wrapper.firstElementChild;
+      // replaceWith move o nó para fora de `wrapper` — reler
+      // wrapper.firstElementChild depois disso dá null, porque wrapper já
+      // ficou vazio. Guardar a referência antes é o que faz o formulário
+      // realmente ganhar os listeners de Salvar/Cancelar.
+      row.replaceWith(formEl);
+      bindQuestionForm(formEl, q._id);
     }));
     el.querySelectorAll('[data-duplicate]').forEach((btn) => btn.addEventListener('click', async () => {
       await api(`/questions/${btn.dataset.duplicate}/duplicate`, { method: 'POST' });
@@ -671,6 +676,12 @@
   loadRoomsOnTabOpen();
   function loadRoomsOnTabOpen() {
     document.querySelector('[data-tab="rooms-tab"]').addEventListener('click', loadRooms);
+    // Resultados e Segurança também recarregam ao abrir a aba — sem isso,
+    // uma lista carregada uma vez no boot podia ficar defasada (ex.: exibir
+    // uma nota que já foi excluída em outra ação), levando a erros como
+    // "Tentativa não encontrada" ao clicar em Detalhes de uma linha velha.
+    document.querySelector('[data-tab="results-tab"]').addEventListener('click', loadResults);
+    document.querySelector('[data-tab="security-tab"]').addEventListener('click', loadSecurityLogs);
   }
 
   boot();

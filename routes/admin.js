@@ -12,11 +12,10 @@ const SecurityLog = require('../models/SecurityLog');
 
 const { requireAdmin } = require('../middleware/auth');
 const { adminLoginLimiter, adminApiLimiter } = require('../middleware/rateLimit');
-const { uploadImage } = require('../middleware/upload');
+const { uploadImage, uploadVideo } = require('../middleware/upload');
 const { generateToken, hashToken } = require('../lib/tokens');
 const { logSecurityEvent } = require('../lib/securityLog');
 const { OPTION_KEYS, DEFAULT_THEME } = require('../lib/constants');
-const { extractYoutubeId } = require('../lib/youtube');
 const { parseQuestionsCsv, EXPECTED_COLUMNS } = require('../lib/csvImport');
 const liveState = require('../lib/liveState');
 const { createSafeRouter } = require('../lib/safeRouter');
@@ -112,10 +111,9 @@ const HEX_COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
 const THEME_COLOR_FIELDS = ['primaryColorLight', 'primaryColor', 'primaryColorDark', 'backgroundColor', 'cardColor'];
 
 router.put('/settings', async (req, res) => {
-  const { platformName, introVideoYoutubeId, theme, resetTheme } = req.body || {};
+  const { platformName, theme, resetTheme } = req.body || {};
   const settings = await Settings.getOrCreate();
   if (typeof platformName === 'string' && platformName.trim()) settings.platformName = platformName.trim();
-  if (typeof introVideoYoutubeId === 'string') settings.introVideoYoutubeId = extractYoutubeId(introVideoYoutubeId);
 
   if (resetTheme) {
     settings.theme = { ...DEFAULT_THEME, backgroundImageUrl: settings.theme.backgroundImageUrl };
@@ -157,6 +155,23 @@ router.delete('/settings/background', async (req, res) => {
   res.json({ success: true, settings });
 });
 
+// Vídeo de boas-vindas padrão da plataforma — usado quando a prova
+// específica não tem um vídeo próprio (ver POST /exams/:examId/intro-video).
+router.post('/settings/intro-video', uploadVideo.single('video'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: 'Nenhum vídeo enviado.' });
+  const settings = await Settings.getOrCreate();
+  settings.introVideoUrl = `/uploads/${req.file.filename}`;
+  await settings.save();
+  res.json({ success: true, settings });
+});
+
+router.delete('/settings/intro-video', async (req, res) => {
+  const settings = await Settings.getOrCreate();
+  settings.introVideoUrl = null;
+  await settings.save();
+  res.json({ success: true, settings });
+});
+
 // ===================== Provas =====================
 
 router.get('/exams', async (req, res) => {
@@ -165,7 +180,7 @@ router.get('/exams', async (req, res) => {
 });
 
 router.post('/exams', async (req, res) => {
-  const { name, questionCount, pointsPerQuestion, durationMinutes, introVideoYoutubeId } = req.body || {};
+  const { name, questionCount, pointsPerQuestion, durationMinutes } = req.body || {};
   if (!name || !String(name).trim()) {
     return res.status(400).json({ success: false, message: 'Nome da prova é obrigatório.' });
   }
@@ -174,7 +189,6 @@ router.post('/exams', async (req, res) => {
     questionCount: Number(questionCount) || 50,
     pointsPerQuestion: Number(pointsPerQuestion) || 2,
     durationMinutes: Number(durationMinutes) || 120,
-    introVideoYoutubeId: extractYoutubeId(introVideoYoutubeId),
     createdBy: req.session.admin.id,
   });
   await logSecurityEvent('exam_created', { meta: { examId: exam._id.toString(), name: exam.name }, ip: req.ip });
@@ -185,14 +199,13 @@ router.put('/exams/:examId', async (req, res) => {
   const { examId } = req.params;
   if (!isValidObjectId(examId)) return res.status(400).json({ success: false, message: 'ID inválido.' });
 
-  const allowed = ['name', 'questionCount', 'pointsPerQuestion', 'durationMinutes', 'introVideoYoutubeId', 'active'];
+  const allowed = ['name', 'questionCount', 'pointsPerQuestion', 'durationMinutes', 'active'];
   const update = {};
   for (const key of allowed) {
     if (req.body && Object.prototype.hasOwnProperty.call(req.body, key)) {
       update[key] = req.body[key];
     }
   }
-  if ('introVideoYoutubeId' in update) update.introVideoYoutubeId = extractYoutubeId(update.introVideoYoutubeId);
 
   const exam = await Exam.findByIdAndUpdate(examId, update, { new: true, runValidators: true });
   if (!exam) return res.status(404).json({ success: false, message: 'Prova não encontrada.' });
@@ -206,6 +219,27 @@ router.post('/exams/:examId/image', uploadImage.single('image'), async (req, res
   if (!req.file) return res.status(400).json({ success: false, message: 'Nenhuma imagem enviada.' });
 
   const exam = await Exam.findByIdAndUpdate(examId, { imageUrl: `/uploads/${req.file.filename}` }, { new: true });
+  if (!exam) return res.status(404).json({ success: false, message: 'Prova não encontrada.' });
+  res.json({ success: true, exam });
+});
+
+// Vídeo de boas-vindas específico desta prova — sobrepõe o vídeo padrão da
+// plataforma (Configurações) quando presente.
+router.post('/exams/:examId/intro-video', uploadVideo.single('video'), async (req, res) => {
+  const { examId } = req.params;
+  if (!isValidObjectId(examId)) return res.status(400).json({ success: false, message: 'ID inválido.' });
+  if (!req.file) return res.status(400).json({ success: false, message: 'Nenhum vídeo enviado.' });
+
+  const exam = await Exam.findByIdAndUpdate(examId, { introVideoUrl: `/uploads/${req.file.filename}` }, { new: true });
+  if (!exam) return res.status(404).json({ success: false, message: 'Prova não encontrada.' });
+  res.json({ success: true, exam });
+});
+
+router.delete('/exams/:examId/intro-video', async (req, res) => {
+  const { examId } = req.params;
+  if (!isValidObjectId(examId)) return res.status(400).json({ success: false, message: 'ID inválido.' });
+
+  const exam = await Exam.findByIdAndUpdate(examId, { introVideoUrl: null }, { new: true });
   if (!exam) return res.status(404).json({ success: false, message: 'Prova não encontrada.' });
   res.json({ success: true, exam });
 });

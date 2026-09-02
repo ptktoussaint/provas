@@ -1,7 +1,7 @@
 (() => {
   const studentToken = location.pathname.split('/').filter(Boolean)[1] || '';
 
-  const screens = ['identify-screen', 'intro-screen', 'share-screen', 'unsupported-screen', 'exam-screen', 'finished-screen', 'error-screen'];
+  const screens = ['identify-screen', 'welcome-screen', 'intro-screen', 'share-screen', 'unsupported-screen', 'exam-screen', 'finished-screen', 'error-screen'];
   function showScreen(id) {
     for (const s of screens) document.getElementById(s).classList.toggle('hidden', s !== id);
   }
@@ -48,6 +48,8 @@
     examInfo = data.exam;
     document.getElementById('intro-exam-name').textContent = data.exam.name;
     document.getElementById('intro-student-name').textContent = `${data.room.studentName} — ${data.room.roomLabel}`;
+    document.getElementById('welcome-student-name').textContent = data.room.studentName || 'candidato(a)';
+    document.getElementById('welcome-exam-name').textContent = data.exam.name || 'prova';
 
     // Mostra os últimos dígitos do ID da sala de forma sempre visível — o
     // fiscal e o aluno precisam estar na MESMA sala para a transmissão
@@ -67,33 +69,45 @@
       return;
     }
 
-    renderIntroVideo(data.exam.introVideoYoutubeId);
-    showScreen('intro-screen');
+    showScreen('welcome-screen');
   }
   autoIdentify();
 
-  function renderIntroVideo(youtubeId) {
+  function renderIntroVideo(videoUrl) {
     const frame = document.getElementById('intro-video-frame');
-    if (!youtubeId) {
-      frame.innerHTML = '<p class="hint">Nenhum vídeo introdutório configurado para esta prova.</p>';
-      return;
-    }
-    // youtube.com em vez de youtube-nocookie.com — o domínio "no cookie"
-    // dispara o erro 153 ("Erro de configuração do player") com mais
-    // frequência para vídeos com certas restrições de incorporação; o
-    // domínio padrão é mais compatível. O parâmetro origin também ajuda o
-    // YouTube a validar a incorporação corretamente.
-    const src = `https://www.youtube.com/embed/${encodeURIComponent(youtubeId)}?origin=${encodeURIComponent(location.origin)}`;
-    frame.innerHTML = `
-      <iframe src="${src}" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-      <p class="hint" style="text-align:center;margin-top:8px">
-        Problemas para ver o vídeo aqui? <a href="https://www.youtube.com/watch?v=${encodeURIComponent(youtubeId)}" target="_blank" rel="noopener">Assista diretamente no YouTube</a>.
-      </p>`;
+    frame.innerHTML = `<video src="${videoUrl}" controls playsinline></video>`;
   }
+
+  // O botão "INICIAR PROVA" da tela de boas-vindas só existe uma vez —
+  // decide aqui se existe vídeo para mostrar antes da sala de
+  // compartilhamento, sem exigir nenhuma etapa extra do aluno quando o
+  // admin não anexou nenhum vídeo a esta prova.
+  document.getElementById('welcome-start-btn').addEventListener('click', () => {
+    if (examInfo && examInfo.introVideoUrl) {
+      renderIntroVideo(examInfo.introVideoUrl);
+      showScreen('intro-screen');
+    } else {
+      showScreen('share-screen');
+    }
+  });
 
   document.getElementById('intro-continue-btn').addEventListener('click', () => {
     showScreen('share-screen');
   });
+
+  // Efeito de luz que segue o cursor na tela de boas-vindas — só a posição
+  // (--mx/--my) muda aqui, o visual (gradiente, cor, blend) fica todo em
+  // CSS. Também responde a toque, para não deixar a tela "morta" em tablets.
+  const welcomeSpotlight = document.getElementById('welcome-spotlight');
+  function moveSpotlight(x, y) {
+    welcomeSpotlight.style.setProperty('--mx', `${x}px`);
+    welcomeSpotlight.style.setProperty('--my', `${y}px`);
+  }
+  window.addEventListener('mousemove', (e) => moveSpotlight(e.clientX, e.clientY));
+  window.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    if (t) moveSpotlight(t.clientX, t.clientY);
+  }, { passive: true });
 
   // ---------- Socket ----------
   // Indicador sempre visível (sem precisar abrir o DevTools) de que o

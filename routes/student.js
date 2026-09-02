@@ -11,7 +11,6 @@ const { startOrResumeAttempt, finalizeAttempt, isExpired } = require('../lib/exa
 const { logExamEvent } = require('../lib/eventLog');
 const { logSecurityEvent } = require('../lib/securityLog');
 const { buildIceServers } = require('../lib/turn');
-const { extractYoutubeId } = require('../lib/youtube');
 const liveState = require('../lib/liveState');
 const { createSafeRouter } = require('../lib/safeRouter');
 
@@ -56,7 +55,7 @@ router.post('/identify', identifyLimiter, async (req, res) => {
     exam: {
       name: exam.name,
       imageUrl: exam.imageUrl,
-      introVideoYoutubeId: extractYoutubeId(exam.introVideoYoutubeId || settings.introVideoYoutubeId),
+      introVideoUrl: exam.introVideoUrl || settings.introVideoUrl || null,
       durationMinutes: exam.durationMinutes,
       questionCount: exam.questionCount,
     },

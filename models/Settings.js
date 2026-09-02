@@ -18,7 +18,7 @@ const settingsSchema = new mongoose.Schema({
   singleton: { type: String, default: 'main', unique: true },
   platformName: { type: String, default: DEFAULT_PLATFORM_NAME },
   logoUrl: { type: String, default: null },
-  introVideoYoutubeId: { type: String, default: null },
+  introVideoUrl: { type: String, default: null },
   theme: { type: themeSchema, default: () => ({}) },
 }, { timestamps: true });
 

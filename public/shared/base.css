@@ -43,6 +43,30 @@ body {
   background-attachment: fixed;
   color: var(--text);
   min-height: 100vh;
+  position: relative;
+}
+
+/* Ambiente "tecnológico" sutil, presente em toda a plataforma: dois brilhos
+   fixos nos cantos (cor do tema, não fixa em vermelho) + uma grade fina
+   quase imperceptível. Fica atrás de tudo (z-index -1) e não intercepta
+   cliques — nunca deve atrapalhar a leitura da prova. */
+body::before, body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+body::before {
+  background:
+    radial-gradient(600px circle at 8% 0%, color-mix(in srgb, var(--accent-2) 16%, transparent), transparent 60%),
+    radial-gradient(700px circle at 100% 100%, color-mix(in srgb, var(--accent-3) 14%, transparent), transparent 60%);
+}
+body::after {
+  background-image: linear-gradient(color-mix(in srgb, var(--text) 3%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--text) 3%, transparent) 1px, transparent 1px);
+  background-size: 42px 42px;
+  opacity: 0.25;
 }
 
 .hidden { display: none !important; }
@@ -64,7 +88,7 @@ body {
   max-width: 440px;
   width: 100%;
   text-align: center;
-  box-shadow: 0 0 40px rgba(168, 85, 247, 0.15);
+  box-shadow: 0 0 40px color-mix(in srgb, var(--accent-2) 22%, transparent);
 }
 
 .card.wide { max-width: 640px; }
@@ -94,7 +118,11 @@ form input, form select, form textarea {
   font-size: 15px;
   font-family: inherit;
 }
-form input:focus, form select:focus, form textarea:focus { outline: 2px solid var(--accent-2); border-color: transparent; }
+form input:focus, form select:focus, form textarea:focus {
+  outline: 2px solid var(--accent-2);
+  border-color: transparent;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent-2) 45%, transparent);
+}
 
 button {
   background: linear-gradient(135deg, var(--accent-2), var(--accent-3));
@@ -107,14 +135,16 @@ button {
   cursor: pointer;
   margin-top: 18px;
   font-family: inherit;
+  transition: box-shadow 0.2s ease, filter 0.2s ease, transform 0.1s ease;
 }
-button:hover { background: linear-gradient(135deg, #9333ea, #6d28d9); }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:hover { filter: brightness(1.12); box-shadow: 0 0 20px color-mix(in srgb, var(--accent-2) 55%, transparent); }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 
 .secondary-btn { background: var(--bg-input); border: 1px solid var(--border); }
 .secondary-btn:hover { background: #2f1e3d; }
 
-.ghost-btn { background: transparent; border: 1px solid var(--border-soft); color: #b39ac9; }
+.ghost-btn { background: transparent; border: 1px solid var(--border-soft); color: var(--text-lilac); }
 .ghost-btn:hover { background: #1c1128; }
 
 .danger-btn { background: linear-gradient(135deg, #dc2626, #b91c1c); }
@@ -127,7 +157,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 12px; font-weight: 500; padding: 6px; margin-top: 14px;
   text-decoration: underline; cursor: pointer;
 }
-.back-btn:hover { background: transparent; color: #b39ac9; }
+.back-btn:hover { background: transparent; color: var(--text-lilac); }
 
 .error-msg { color: var(--danger); font-size: 13px; margin: 12px 0 0; min-height: 16px; }
 .hint { color: var(--text-soft); font-size: 12px; margin-top: 18px; line-height: 1.5; }
@@ -159,7 +189,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   flex-shrink: 0;
 }
 .app-sidebar h3 { font-size: 16px; }
-.app-sidebar h4 { margin: 20px 0 10px; font-size: 12px; color: #b39ac9; text-transform: uppercase; letter-spacing: 0.05em; }
+.app-sidebar h4 { margin: 20px 0 10px; font-size: 12px; color: var(--text-lilac); text-transform: uppercase; letter-spacing: 0.05em; }
 
 @media (max-width: 900px) {
   .app-layout { flex-direction: column; }
@@ -211,7 +241,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 table.data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 table.data-table th, table.data-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); }
 table.data-table th { color: var(--text-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
-table.data-table tr:hover { background: rgba(168, 85, 247, 0.06); }
+table.data-table tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent); }
 .table-scroll { overflow-x: auto; }
 
 .top-nav {
@@ -226,7 +256,7 @@ table.data-table tr:hover { background: rgba(168, 85, 247, 0.06); }
 .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
 .tab-btn {
   margin-top: 0; padding: 9px 16px; font-size: 13px;
-  background: var(--bg-input); border: 1px solid var(--border); color: #b39ac9;
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text-lilac);
 }
 .tab-btn.active { background: linear-gradient(135deg, var(--accent-2), var(--accent-3)); color: #fff; border-color: transparent; }
 

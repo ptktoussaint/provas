@@ -11,7 +11,7 @@
 
   <div id="setup-screen" class="screen center-screen hidden">
     <div class="card">
-      <p class="logo-text js-wordmark">💜 PROVAS LIVE</p>
+      <p class="logo-text js-wordmark">🔥 PROVAS LIVE</p>
       <h2>Criar administrador</h2>
       <p class="hint" style="margin-top:0">Nenhum administrador foi encontrado ainda — crie a primeira conta para acessar o painel. Esta tela só aparece uma vez.</p>
       <form id="setup-form">
@@ -27,7 +27,7 @@
 
   <div id="login-screen" class="screen center-screen hidden">
     <div class="card">
-      <p class="logo-text js-wordmark">💜 PROVAS LIVE</p>
+      <p class="logo-text js-wordmark">🔥 PROVAS LIVE</p>
       <h2>Painel Administrativo</h2>
       <form id="login-form">
         <label>Usuário</label>
@@ -43,7 +43,7 @@
   <div id="app-screen" class="screen hidden">
     <div class="app-main" style="max-width:1200px;margin:0 auto;">
       <div class="top-nav">
-        <div class="brand"><span class="js-wordmark">💜 PROVAS LIVE</span> — Admin</div>
+        <div class="brand"><span class="js-wordmark">🔥 PROVAS LIVE</span> — Admin</div>
         <div>
           <span class="hint" id="admin-username" style="margin:0 12px 0 0"></span>
           <button class="secondary-btn small-btn" id="logout-btn" style="margin:0">Sair</button>
@@ -76,11 +76,17 @@
               <label>Nome da plataforma</label>
               <input id="settings-platform-name" placeholder="Ex.: PROVA TCEL BOMBEIROS SUL FLUXO RP" />
             </div>
-            <div class="field-group" style="flex:2;min-width:220px">
-              <label>Vídeo introdutório padrão (ID do YouTube)</label>
-              <input id="settings-intro-video" placeholder="Ex.: dQw4w9WgXcQ" />
-            </div>
             <button type="submit" class="small-btn" style="align-self:flex-end">Salvar</button>
+          </form>
+
+          <form id="settings-intro-video-form" class="inline-form" style="margin-top:14px">
+            <div class="field-group" style="flex:2;min-width:260px">
+              <label>Vídeo de boas-vindas padrão (usado quando a prova não tem um próprio)</label>
+              <input type="file" id="settings-intro-video-file" accept="video/mp4,video/webm,video/ogg" />
+              <p class="hint" id="settings-intro-video-status" style="margin:4px 0 0"></p>
+            </div>
+            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Enviar vídeo</button>
+            <button type="button" class="small-btn secondary-btn" id="remove-settings-intro-video-btn" style="align-self:flex-end">Remover</button>
           </form>
         </div>
 
@@ -152,12 +158,9 @@
               <label>Duração (minutos)</label>
               <input id="exam-duration" type="number" value="120" min="1" />
             </div>
-            <div class="field-group" style="flex:2;min-width:220px">
-              <label>Vídeo introdutório (ID do YouTube, opcional)</label>
-              <input id="exam-intro-video" placeholder="Ex.: dQw4w9WgXcQ" />
-            </div>
             <button type="submit" class="small-btn" style="align-self:flex-end">Criar prova</button>
           </form>
+          <p class="hint" style="margin-top:0">O vídeo de boas-vindas específico desta prova é enviado depois de criada, na própria linha da lista abaixo (sem vídeo próprio, usa o vídeo padrão da plataforma configurado acima).</p>
           <div id="exams-list" class="list-plain"></div>
         </div>
 

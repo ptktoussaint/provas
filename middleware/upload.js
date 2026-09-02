@@ -31,4 +31,36 @@ const uploadImage = multer({
   limits: { fileSize: MAX_SIZE_BYTES, files: 1 },
 });
 
-module.exports = { uploadImage };
+// Vídeo de boas-vindas/introdução, enviado como arquivo em vez de link do
+// YouTube (o embed do YouTube causava erros de reprodução recorrentes).
+// Limite bem mais generoso que o de imagem, mas ainda finito — sem isso um
+// upload gigante podia encher o disco (que no Render é compartilhado e
+// limitado) ou travar a requisição por minutos.
+const VIDEO_ALLOWED_MIME = new Set(['video/mp4', 'video/webm', 'video/ogg']);
+const VIDEO_ALLOWED_EXT = new Set(['.mp4', '.webm', '.ogg', '.ogv']);
+const VIDEO_MAX_SIZE_BYTES = 300 * 1024 * 1024;
+
+const videoStorage = multer.diskStorage({
+  destination: path.join(__dirname, '..', 'public', 'uploads'),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const safeName = `${crypto.randomBytes(16).toString('hex')}${ext}`;
+    cb(null, safeName);
+  },
+});
+
+function videoFileFilter(req, file, cb) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (!VIDEO_ALLOWED_MIME.has(file.mimetype) || !VIDEO_ALLOWED_EXT.has(ext)) {
+    return cb(new Error('Formato de vídeo não permitido. Use MP4, WEBM ou OGG.'));
+  }
+  cb(null, true);
+}
+
+const uploadVideo = multer({
+  storage: videoStorage,
+  fileFilter: videoFileFilter,
+  limits: { fileSize: VIDEO_MAX_SIZE_BYTES, files: 1 },
+});
+
+module.exports = { uploadImage, uploadVideo };

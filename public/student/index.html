@@ -14,9 +14,29 @@
 
   <div id="identify-screen" class="screen center-screen">
     <div class="card">
-      <p class="logo-text js-wordmark">💜 PROVAS LIVE</p>
+      <p class="logo-text js-wordmark">🔥 PROVAS LIVE</p>
       <p class="hint">Carregando sua sala...</p>
       <p class="error-msg" id="identify-error"></p>
+    </div>
+  </div>
+
+  <div id="welcome-screen" class="screen center-screen hidden welcome-screen">
+    <div class="spotlight-layer" id="welcome-spotlight"></div>
+    <div class="welcome-glow-ring"></div>
+    <div class="card wide welcome-card">
+      <img class="js-logo hidden welcome-logo" alt="Logo" />
+      <p class="logo-text js-wordmark js-logo-fallback welcome-wordmark">PROVAS LIVE</p>
+      <h1 class="welcome-title">Parabéns, <span id="welcome-student-name">candidato(a)</span>!</h1>
+      <p class="welcome-text">
+        Você foi selecionado(a) para realizar a <strong id="welcome-exam-name">prova</strong>.
+        Chegar até esta etapa não é para todos — é o resultado direto da sua dedicação,
+        disciplina e preparo. Poucos candidatos alcançam este momento, e você é um deles.
+      </p>
+      <p class="welcome-text">
+        Agora é a sua vez de mostrar, com concentração e confiança, tudo o que construiu até
+        aqui. Respire fundo e boa prova.
+      </p>
+      <button id="welcome-start-btn" class="welcome-start-btn">INICIAR PROVA</button>
     </div>
   </div>
 
@@ -83,7 +103,7 @@
 
   <div id="finished-screen" class="screen center-screen hidden">
     <div class="card">
-      <p class="logo-text js-wordmark">💜 PROVAS LIVE</p>
+      <p class="logo-text js-wordmark">🔥 PROVAS LIVE</p>
       <h2>PROVA FINALIZADA COM SUCESSO</h2>
       <p>Suas respostas foram registradas.</p>
       <p>Você já pode encerrar esta página.</p>

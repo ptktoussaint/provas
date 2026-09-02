@@ -23,6 +23,17 @@
       document.title = section ? `${section} — ${data.platformName}` : data.platformName;
       document.querySelectorAll('.js-wordmark').forEach((el) => { el.textContent = data.platformName; });
     }
+
+    // Onde a página tem um espaço para logo (.js-logo), mostra a imagem
+    // enviada pelo admin no lugar do nome em texto (.js-logo-fallback).
+    // Sem logo enviada, o texto continua sendo a identidade visual.
+    if (data.logoUrl) {
+      document.querySelectorAll('.js-logo').forEach((img) => {
+        img.src = data.logoUrl;
+        img.classList.remove('hidden');
+      });
+      document.querySelectorAll('.js-logo-fallback').forEach((el) => el.classList.add('hidden'));
+    }
   } catch (err) {
     // Se a busca falhar, a página fica com a paleta padrão do base.css —
     // nunca quebra a tela por causa disso.

@@ -49,17 +49,17 @@ async function main() {
   app.set('trust proxy', 1);
   app.set('io', io);
 
-  // CSP restritiva: sem CDNs externos (JS/CSS 100% locais), só permitindo o
-  // embed do vídeo introdutório do YouTube (requisito #51).
+  // CSP restritiva: sem CDNs externos, JS/CSS/vídeo 100% locais (o vídeo
+  // introdutório agora é um arquivo enviado pelo admin e servido pela
+  // própria origem — não depende mais de embed do YouTube).
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'https://i.ytimg.com'],
+        imgSrc: ["'self'", 'data:'],
         connectSrc: ["'self'", 'wss:', 'ws:'],
-        frameSrc: ['https://www.youtube.com', 'https://www.youtube-nocookie.com'],
         mediaSrc: ["'self'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],

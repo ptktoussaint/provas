@@ -216,7 +216,9 @@
     const data = await api('/settings');
     if (!data.success) return;
     document.getElementById('settings-platform-name').value = data.settings.platformName || '';
-    document.getElementById('settings-intro-video').value = data.settings.introVideoYoutubeId || '';
+    document.getElementById('settings-intro-video-status').textContent = data.settings.introVideoUrl
+      ? '✓ Vídeo padrão enviado.'
+      : 'Nenhum vídeo padrão enviado.';
 
     const theme = data.settings.theme || {};
     document.getElementById('theme-primary-color').value = theme.primaryColor || '#dc2626';
@@ -233,10 +235,26 @@
       method: 'PUT',
       body: JSON.stringify({
         platformName: document.getElementById('settings-platform-name').value,
-        introVideoYoutubeId: document.getElementById('settings-intro-video').value,
       }),
     });
     if (data.success) document.querySelectorAll('.js-wordmark').forEach((el) => { el.textContent = data.settings.platformName; });
+  });
+
+  document.getElementById('settings-intro-video-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = document.getElementById('settings-intro-video-file').files[0];
+    if (!file) return;
+    document.getElementById('settings-intro-video-status').textContent = 'Enviando...';
+    const formData = new FormData();
+    formData.append('video', file);
+    const data = await api('/settings/intro-video', { method: 'POST', body: formData });
+    if (!data.success) { alert(data.message || 'Erro ao enviar vídeo.'); }
+    loadSettings();
+  });
+
+  document.getElementById('remove-settings-intro-video-btn').addEventListener('click', async () => {
+    await api('/settings/intro-video', { method: 'DELETE' });
+    loadSettings();
   });
 
   document.getElementById('theme-form').addEventListener('submit', async (e) => {
@@ -302,7 +320,6 @@
       questionCount: Number(document.getElementById('exam-question-count').value),
       pointsPerQuestion: Number(document.getElementById('exam-points').value),
       durationMinutes: Number(document.getElementById('exam-duration').value),
-      introVideoYoutubeId: document.getElementById('exam-intro-video').value.trim() || null,
     };
     const data = await api('/exams', { method: 'POST', body: JSON.stringify(payload) });
     if (data.success) { e.target.reset(); document.getElementById('exam-question-count').value = 50; document.getElementById('exam-points').value = 2; document.getElementById('exam-duration').value = 120; loadExams(); }
@@ -323,11 +340,32 @@
           <button class="small-btn secondary-btn" data-toggle-exam="${exam._id}" data-active="${exam.active}">${exam.active ? 'Desativar' : 'Ativar'}</button>
           <button class="small-btn" data-view-questions="${exam._id}" data-name="${escapeHtml(exam.name)}">Questões</button>
         </div>
+        <div class="room-item-actions">
+          <span class="badge ${exam.introVideoUrl ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${exam.introVideoUrl ? 'Vídeo de boas-vindas enviado' : 'Sem vídeo próprio (usa o padrão)'}</span>
+          <input type="file" accept="video/mp4,video/webm,video/ogg" data-exam-video-file="${exam._id}" style="max-width:220px" />
+          <button class="small-btn secondary-btn" data-exam-video-upload="${exam._id}">Enviar vídeo</button>
+          ${exam.introVideoUrl ? `<button class="small-btn secondary-btn" data-exam-video-remove="${exam._id}">Remover vídeo</button>` : ''}
+        </div>
       </div>
     `).join('');
 
     el.querySelectorAll('[data-toggle-exam]').forEach((btn) => btn.addEventListener('click', async () => {
       await api(`/exams/${btn.dataset.toggleExam}`, { method: 'PUT', body: JSON.stringify({ active: btn.dataset.active !== 'true' }) });
+      loadExams();
+    }));
+    el.querySelectorAll('[data-exam-video-upload]').forEach((btn) => btn.addEventListener('click', async () => {
+      const examId = btn.dataset.examVideoUpload;
+      const fileInput = el.querySelector(`[data-exam-video-file="${examId}"]`);
+      const file = fileInput.files[0];
+      if (!file) { alert('Escolha um arquivo de vídeo primeiro.'); return; }
+      const formData = new FormData();
+      formData.append('video', file);
+      const data = await api(`/exams/${examId}/intro-video`, { method: 'POST', body: formData });
+      if (!data.success) { alert(data.message || 'Erro ao enviar vídeo.'); return; }
+      loadExams();
+    }));
+    el.querySelectorAll('[data-exam-video-remove]').forEach((btn) => btn.addEventListener('click', async () => {
+      await api(`/exams/${btn.dataset.examVideoRemove}/intro-video`, { method: 'DELETE' });
       loadExams();
     }));
     el.querySelectorAll('[data-view-questions]').forEach((btn) => btn.addEventListener('click', () => {

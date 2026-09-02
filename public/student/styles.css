@@ -43,9 +43,9 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 700; color: var(--text-lilac);
 }
-.option-btn:hover { background: #2f1e3d; }
+.option-btn:hover { background: color-mix(in srgb, var(--accent-2) 16%, var(--bg-input)); }
 .option-btn.selected {
-  background: linear-gradient(135deg, rgba(168,85,247,0.25), rgba(124,58,237,0.25));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-1) 28%, transparent), color-mix(in srgb, var(--accent-3) 28%, transparent));
   border-color: var(--accent-2);
 }
 .option-btn.selected .option-key { background: linear-gradient(135deg, var(--accent-2), var(--accent-3)); color: #fff; }
@@ -76,6 +76,80 @@
 
 .video-frame { width: 100%; max-width: 640px; aspect-ratio: 16/9; border-radius: 12px; overflow: hidden; background: #000; }
 .video-frame iframe { width: 100%; height: 100%; border: 0; }
+.video-frame video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+/* ---------- Tela de boas-vindas ---------- */
+.spotlight-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  --mx: 50vw;
+  --my: 35vh;
+  background: radial-gradient(340px circle at var(--mx) var(--my), color-mix(in srgb, var(--accent-1) 35%, transparent), transparent 70%);
+}
+
+.welcome-glow-ring {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 900px;
+  height: 900px;
+  max-width: 140vw;
+  max-height: 140vw;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-2) 24%, transparent), transparent 65%);
+  filter: blur(10px);
+  animation: welcome-pulse 4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes welcome-pulse {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.08); }
+}
+
+.welcome-card {
+  position: relative;
+  z-index: 2;
+  max-width: 620px;
+  border-color: color-mix(in srgb, var(--accent-2) 50%, var(--border));
+  box-shadow: 0 0 60px color-mix(in srgb, var(--accent-2) 35%, transparent),
+    0 0 130px color-mix(in srgb, var(--accent-3) 20%, transparent);
+}
+
+.welcome-logo { max-width: 200px; max-height: 90px; margin: 0 auto 20px; display: block; }
+.welcome-wordmark { font-size: 26px; }
+
+.welcome-title {
+  font-size: 30px;
+  font-weight: 800;
+  margin: 4px 0 18px;
+  text-shadow: 0 0 24px color-mix(in srgb, var(--accent-1) 70%, transparent);
+}
+.welcome-title span { color: var(--accent-1); }
+
+.welcome-text { color: var(--text-lilac); font-size: 15px; margin: 0 0 14px; text-align: left; }
+
+.welcome-start-btn {
+  width: 100%;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  padding: 16px 20px;
+  margin-top: 22px;
+  animation: welcome-btn-glow 2.2s ease-in-out infinite;
+}
+
+@keyframes welcome-btn-glow {
+  0%, 100% { box-shadow: 0 0 14px color-mix(in srgb, var(--accent-2) 45%, transparent); }
+  50% { box-shadow: 0 0 34px color-mix(in srgb, var(--accent-1) 65%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-glow-ring, .welcome-start-btn { animation: none; }
+}
 
 .screen-preview { width: 100%; max-width: 480px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: #000; }
 .screen-preview video { width: 100%; display: block; }

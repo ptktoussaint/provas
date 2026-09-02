@@ -28,6 +28,12 @@ router.post('/identify', identifyLimiter, async (req, res) => {
   const tokenEntry = room.proctorTokens.find((t) => timingSafeEqualHex(t.tokenHash, hash));
   const exam = await Exam.findById(room.examId);
 
+  // Ver comentário equivalente em routes/student.js: uma sessão só pode
+  // representar um papel por vez, senão o servidor pode continuar
+  // resolvendo essa conexão como um papel antigo (ex.: admin) e nunca
+  // registrar de fato este fiscal.
+  req.session.admin = null;
+  req.session.student = null;
   req.session.proctor = { roomId: room._id.toString(), proctorTokenId: tokenEntry._id.toString() };
   await new Promise((resolve) => req.session.save(resolve));
 

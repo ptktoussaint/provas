@@ -56,6 +56,8 @@ router.post('/setup-first-admin', adminLoginLimiter, async (req, res) => {
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
   const user = await User.create({ username: String(username).trim(), passwordHash, role: 'admin' });
 
+  req.session.student = null;
+  req.session.proctor = null;
   req.session.admin = { id: user._id.toString(), username: user.username };
   await logSecurityEvent('admin_setup_first_admin', { meta: { username: user.username }, ip: req.ip });
   res.status(201).json({ success: true, username: user.username });
@@ -81,6 +83,8 @@ router.post('/login', adminLoginLimiter, async (req, res) => {
     return res.status(401).json({ success: false, message: 'Credenciais inválidas.' });
   }
 
+  req.session.student = null;
+  req.session.proctor = null;
   req.session.admin = { id: user._id.toString(), username: user.username };
   await logSecurityEvent('admin_login_success', { meta: { username }, ip });
   res.json({ success: true, username: user.username });

@@ -40,6 +40,13 @@ router.post('/identify', identifyLimiter, async (req, res) => {
 
   const settings = await Settings.getOrCreate();
 
+  // Uma sessão (cookie do navegador) só pode representar UM papel por vez —
+  // sem isto, testar o link do aluno no mesmo navegador onde o admin já
+  // estava logado fazia o servidor continuar tratando aquela conexão de
+  // socket como admin (resolveRole prioriza session.admin), e o aluno nunca
+  // era registrado como online de verdade para o fiscal.
+  req.session.admin = null;
+  req.session.proctor = null;
   req.session.student = { roomId: room._id.toString() };
   await new Promise((resolve) => req.session.save(resolve));
 

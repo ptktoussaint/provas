@@ -538,7 +538,7 @@
           <button class="small-btn secondary-btn" data-get-student-link="${r._id}">🔗 Link do aluno</button>
           <button class="small-btn secondary-btn" data-add-proctor="${r._id}">+ Link do fiscal</button>
           ${r.status !== 'closed' ? `<button class="small-btn danger-btn" data-close-room="${r._id}">Encerrar sala</button>` : ''}
-          <button class="small-btn danger-btn" data-delete-room="${r._id}" title="Excluir sala e histórico">✕ Excluir sala</button>
+          <button class="small-btn danger-btn" data-delete-room="${r._id}" title="Excluir sala (a nota fica salva em Resultados)">✕ Excluir sala</button>
         </div>
         <div class="room-item-actions" data-proctor-list>
           ${activeTokens.map((t) => `<span class="badge badge-ok"><span class="badge-dot"></span>${escapeHtml(t.label)}</span><button class="small-btn secondary-btn" data-revoke-token="${r._id}:${t._id}" title="Excluir este link">✕</button>`).join('')}
@@ -566,7 +566,7 @@
       loadRooms();
     }));
     el.querySelectorAll('[data-delete-room]').forEach((btn) => btn.addEventListener('click', async () => {
-      if (!confirm('Excluir esta sala? Isso apaga também o histórico da tentativa e a auditoria dela. Essa ação não pode ser desfeita.')) return;
+      if (!confirm('Excluir esta sala? A nota e o histórico da prova continuam salvos na aba Resultados. Essa ação não pode ser desfeita (o link deixa de funcionar).')) return;
       const data = await api(`/rooms/${btn.dataset.deleteRoom}`, { method: 'DELETE' });
       if (!data.success) { alert(data.message || 'Erro ao excluir.'); return; }
       loadRooms();
@@ -599,8 +599,8 @@
     // nunca se sobrescrevem entre si.
     tbody.innerHTML = data.attempts.map((a) => `
       <tr>
-        <td>${escapeHtml(a.roomId ? a.roomId.studentName : a.studentName)}</td>
-        <td>${escapeHtml(a.roomId ? a.roomId.roomLabel : '—')}</td>
+        <td>${escapeHtml(a.roomId ? a.roomId.studentName : a.studentName)}${a.roomId ? '' : ' <span class="hint">(sala excluída)</span>'}</td>
+        <td>${escapeHtml((a.roomId ? a.roomId.roomLabel : a.roomLabel) || '—')}</td>
         <td>${escapeHtml(a.examId ? a.examId.name : '')}</td>
         <td>${a.status === 'in_progress' ? '—' : a.score}</td>
         <td>${a.status === 'in_progress' ? '—' : a.correctCount}</td>

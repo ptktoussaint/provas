@@ -29,6 +29,11 @@ const examAttemptSchema = new mongoose.Schema({
   roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true, index: true },
   examId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', required: true },
   studentName: { type: String, required: true },
+  // Cópia do rótulo da sala no momento da prova — a sala pode ser excluída
+  // depois (ex.: para não acumular na lista) sem que o arquivo do resultado
+  // perca essa informação; nunca depende de populate('roomId') continuar
+  // resolvendo um documento que talvez não exista mais.
+  roomLabel: { type: String, default: null },
 
   status: {
     type: String,

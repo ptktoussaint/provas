@@ -453,9 +453,14 @@ router.post('/rooms/:roomId/close', async (req, res) => {
   res.json({ success: true });
 });
 
-// Exclusão definitiva — some da lista junto com o histórico daquela sala
-// (tentativa e eventos de auditoria). Só permitida com a sala já encerrada
-// (nunca com um aluno em prova) para não apagar dados de algo em andamento.
+// Exclusão da SALA (link/token de acesso) — some da lista de salas para não
+// ficar acumulando. Isto NUNCA apaga a nota/histórico da tentativa: o
+// arquivo de resultados (aba Resultados) é permanente e só é apagado por
+// uma ação separada e explícita ("Apagar nota"). ExamAttempt/ExamEvent
+// guardam seus próprios dados (studentName, roomLabel) independentes da
+// sala continuar existindo, então excluir a sala não deixa esse histórico
+// órfão nem incompleto. Só permitida com a sala já encerrada (nunca com um
+// aluno em prova) para não apagar acesso de algo em andamento.
 router.delete('/rooms/:roomId', async (req, res) => {
   const { roomId } = req.params;
   if (!isValidObjectId(roomId)) return res.status(400).json({ success: false, message: 'ID inválido.' });
@@ -466,8 +471,6 @@ router.delete('/rooms/:roomId', async (req, res) => {
     return res.status(409).json({ success: false, message: 'Encerre a sala antes de excluí-la.' });
   }
 
-  await ExamAttempt.deleteMany({ roomId });
-  await ExamEvent.deleteMany({ roomId });
   await Room.findByIdAndDelete(roomId);
   liveState.removeRoom(roomId);
   await logSecurityEvent('room_deleted_by_admin', { meta: { roomId }, ip: req.ip });

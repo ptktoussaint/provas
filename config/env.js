@@ -26,6 +26,11 @@ module.exports = {
     .filter(Boolean),
   turnSecret: process.env.TURN_SECRET || null,
   turnCredentialTtlSeconds: parseInt(process.env.TURN_CREDENTIAL_TTL_SECONDS || '43200', 10),
+  // Credenciais estáticas — alternativa mais simples ao TURN_SECRET (HMAC
+  // efêmero) para quem está usando um provedor de TURN gratuito que só
+  // fornece usuário/senha fixos (ex.: Open Relay Project/Metered).
+  turnUsername: process.env.TURN_USERNAME || null,
+  turnCredential: process.env.TURN_CREDENTIAL || null,
   seedAdminUsername: process.env.SEED_ADMIN_USERNAME || null,
   seedAdminPassword: process.env.SEED_ADMIN_PASSWORD || null,
 };

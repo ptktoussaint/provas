@@ -10,6 +10,7 @@ window.StudentWebRTC = (() => {
   let socket = null;
   let mediaStream = null;
   let iceServers = [];
+  let turnConfigured = false;
   const peers = new Map(); // viewerId -> { pc, pendingCandidates, negotiating, pendingRenegotiate, failedRetries, recreateCount, disconnectTimer }
   // Fiscais que conectaram antes do aluno ter compartilhado a tela — não dá
   // para criar a PeerConnection sem tracks; ficam em espera até a captura
@@ -19,10 +20,29 @@ window.StudentWebRTC = (() => {
   let onStateChangeCb = () => {};
   let onCaptureEndedCb = () => {};
 
+  // Log de diagnóstico verboso e propositalmente explícito — problema de
+  // conectividade WebRTC é praticamente impossível de resolver às cegas;
+  // isto é o que permite ver exatamente em que ponto uma negociação
+  // específica travou (requisito #29).
+  function log(viewerId, ...args) {
+    console.log(`[webrtc-student ${new Date().toISOString().slice(11, 23)}] [${viewerId || '-'}]`, ...args);
+  }
+
+  function candidateSummary(candidate) {
+    if (!candidate || !candidate.candidate) return 'end-of-candidates';
+    const match = candidate.candidate.match(/typ (\w+)/);
+    return match ? `tipo=${match[1]}` : candidate.candidate;
+  }
+
   async function fetchIceServers() {
     const res = await fetch('/api/student/ice-servers');
     const data = await res.json();
     iceServers = data.iceServers || [];
+    turnConfigured = Boolean(data.turnConfigured);
+    log(null, 'ICE servers carregados. turnConfigured =', turnConfigured, iceServers.map((s) => s.urls));
+    if (!turnConfigured) {
+      console.warn('[webrtc-student] Nenhum servidor TURN configurado — conexões só funcionam quando STUN/P2P direto é suficiente. Em redes com NAT/firewall restritivo, a transmissão pode não conectar. Configure TURN_URLS no servidor.');
+    }
     return data;
   }
 
@@ -37,18 +57,20 @@ window.StudentWebRTC = (() => {
 
     mediaStream = stream;
     const [track] = stream.getVideoTracks();
+    log(null, 'Captura de tela iniciada. track:', track && track.label, track && track.readyState);
     if (track) {
-      track.onended = () => onCaptureEndedCb('ended');
-      track.onmute = () => onCaptureEndedCb('muted');
+      track.onended = () => { log(null, 'track.onended disparado'); onCaptureEndedCb('ended'); };
+      track.onmute = () => { log(null, 'track.onmute disparado'); onCaptureEndedCb('muted'); };
     }
     flushPendingViewers();
     return stream;
   }
 
-  function attachTracksToPeer(pc) {
+  function attachTracksToPeer(pc, viewerId) {
     if (!mediaStream) return;
     for (const track of mediaStream.getTracks()) {
       pc.addTrack(track, mediaStream);
+      log(viewerId, 'track adicionada à PeerConnection:', track.kind, track.label);
     }
   }
 
@@ -62,12 +84,14 @@ window.StudentWebRTC = (() => {
   function closePeer(viewerId) {
     const peer = peers.get(viewerId);
     if (!peer) return;
+    log(viewerId, 'fechando PeerConnection (cleanup)');
     clearDisconnectTimer(peer);
     try { peer.pc.close(); } catch (_) { /* já fechado */ }
     peers.delete(viewerId);
   }
 
   function createPeer(viewerId) {
+    log(viewerId, 'criando nova PeerConnection. iceServers:', iceServers.length, 'turnConfigured:', turnConfigured);
     const pc = new RTCPeerConnection({ iceServers });
     const peer = {
       pc,
@@ -80,14 +104,20 @@ window.StudentWebRTC = (() => {
     };
     peers.set(viewerId, peer);
 
-    attachTracksToPeer(pc);
+    attachTracksToPeer(pc, viewerId);
 
     pc.onicecandidate = (event) => {
+      log(viewerId, 'onicecandidate:', candidateSummary(event.candidate));
       if (event.candidate) socket.emit('webrtc:ice', { viewerId, candidate: event.candidate });
     };
 
+    pc.oniceconnectionstatechange = () => log(viewerId, 'iceConnectionState =', pc.iceConnectionState);
+    pc.onsignalingstatechange = () => log(viewerId, 'signalingState =', pc.signalingState);
+    pc.onicegatheringstatechange = () => log(viewerId, 'iceGatheringState =', pc.iceGatheringState);
+
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
+      log(viewerId, 'connectionState =', state);
       onStateChangeCb(viewerId, state);
 
       if (state === 'connected') {
@@ -100,11 +130,15 @@ window.StudentWebRTC = (() => {
         clearDisconnectTimer(peer);
         // Pequena janela para recuperação natural antes de agir (requisito #22).
         peer.disconnectTimer = setTimeout(() => {
-          if (pc.connectionState === 'disconnected') handleFailure(viewerId);
+          if (pc.connectionState === 'disconnected') {
+            log(viewerId, 'ainda "disconnected" após 5s de espera — acionando recuperação');
+            handleFailure(viewerId);
+          }
         }, 5000);
       }
 
       if (state === 'failed') {
+        log(viewerId, 'connectionState "failed" — acionando recuperação imediatamente');
         handleFailure(viewerId);
       }
     };
@@ -114,11 +148,12 @@ window.StudentWebRTC = (() => {
 
   function handleFailure(viewerId) {
     const peer = peers.get(viewerId);
-    if (!peer) return;
+    if (!peer) { log(viewerId, 'handleFailure chamado mas não há peer registrado'); return; }
 
     if (peer.failedRetries < FAILED_RETRY_LIMIT) {
       peer.failedRetries += 1;
-      try { peer.pc.restartIce(); } catch (_) { /* nem todo navegador suporta */ }
+      log(viewerId, `tentativa de recuperação ${peer.failedRetries}/${FAILED_RETRY_LIMIT}: restartIce() + renegociar`);
+      try { peer.pc.restartIce(); } catch (err) { log(viewerId, 'restartIce() não suportado/falhou:', err.message); }
       negotiate(viewerId);
       return;
     }
@@ -127,12 +162,14 @@ window.StudentWebRTC = (() => {
       // Desistimos desta PeerConnection — fechamos e removemos para não
       // deixar uma conexão zumbi (requisito #31). Recuperação a partir daqui
       // é manual: o fiscal recarrega a página, o que cria um viewerId novo.
+      log(viewerId, `limite de ${MAX_RECREATES_PER_VIEWER} recriações atingido — desistindo, estado "error"`);
       closePeer(viewerId);
       onStateChangeCb(viewerId, 'error');
       return;
     }
 
     const recreateCount = peer.recreateCount + 1;
+    log(viewerId, `recriando PeerConnection do zero (recreateCount=${recreateCount})`);
     closePeer(viewerId);
     const fresh = createPeer(viewerId);
     fresh.recreateCount = recreateCount;
@@ -143,16 +180,19 @@ window.StudentWebRTC = (() => {
     const peer = peers.get(viewerId);
     if (!peer) return;
     if (peer.negotiating) {
+      log(viewerId, 'negociação já em andamento — marcando para renegociar em seguida');
       peer.pendingRenegotiate = true;
       return;
     }
     peer.negotiating = true;
     try {
+      log(viewerId, 'criando offer...');
       const offer = await peer.pc.createOffer();
       await peer.pc.setLocalDescription(offer);
+      log(viewerId, 'offer criada e definida como local, enviando via socket');
       socket.emit('webrtc:offer', { viewerId, sdp: peer.pc.localDescription });
     } catch (err) {
-      console.error('[webrtc] falha ao negociar com', viewerId, err);
+      console.error(`[webrtc-student] [${viewerId}] falha ao negociar:`, err);
     } finally {
       peer.negotiating = false;
       if (peer.pendingRenegotiate) {
@@ -164,11 +204,13 @@ window.StudentWebRTC = (() => {
 
   async function handleAnswer({ viewerId, sdp }) {
     const peer = peers.get(viewerId);
-    if (!peer) return;
+    if (!peer) { log(viewerId, 'answer recebida mas não há peer registrado (ignorando)'); return; }
+    log(viewerId, 'answer recebida, aplicando setRemoteDescription');
     await peer.pc.setRemoteDescription(sdp);
     const pending = peer.pendingCandidates.splice(0);
+    log(viewerId, `aplicando ${pending.length} ICE candidate(s) que estavam na fila`);
     for (const candidate of pending) {
-      await peer.pc.addIceCandidate(candidate).catch((err) => console.error('[webrtc] ICE pendente falhou', err));
+      await peer.pc.addIceCandidate(candidate).catch((err) => console.error(`[webrtc-student] [${viewerId}] ICE pendente falhou:`, err));
     }
   }
 
@@ -178,14 +220,17 @@ window.StudentWebRTC = (() => {
     // Fila de ICE candidates que chegam antes da remoteDescription — nunca
     // descartar (requisito #19).
     if (peer.pc.remoteDescription && peer.pc.remoteDescription.type) {
-      await peer.pc.addIceCandidate(candidate).catch((err) => console.error('[webrtc] addIceCandidate falhou', err));
+      await peer.pc.addIceCandidate(candidate).catch((err) => console.error(`[webrtc-student] [${viewerId}] addIceCandidate falhou:`, err));
     } else {
+      log(viewerId, 'ICE candidate chegou antes da remoteDescription — enfileirando');
       peer.pendingCandidates.push(candidate);
     }
   }
 
   function handleViewerJoined({ viewerId }) {
+    log(viewerId, 'viewer:joined recebido');
     if (!mediaStream) {
+      log(viewerId, 'ainda sem captura de tela — colocando em espera (pendingViewerIds)');
       pendingViewerIds.add(viewerId);
       onStateChangeCb(viewerId, 'awaiting-media');
       return;
@@ -195,6 +240,7 @@ window.StudentWebRTC = (() => {
   }
 
   function handleViewerLeft({ viewerId }) {
+    log(viewerId, 'viewer:left recebido');
     pendingViewerIds.delete(viewerId);
     closePeer(viewerId);
     onStateChangeCb(viewerId, 'left');
@@ -202,6 +248,7 @@ window.StudentWebRTC = (() => {
 
   function flushPendingViewers() {
     for (const viewerId of Array.from(pendingViewerIds)) {
+      log(viewerId, 'captura disponível agora — apresentando viewer que estava em espera');
       pendingViewerIds.delete(viewerId);
       if (!peers.has(viewerId)) createPeer(viewerId);
       negotiate(viewerId);
@@ -209,6 +256,7 @@ window.StudentWebRTC = (() => {
   }
 
   function handleRequestRenegotiate({ viewerId }) {
+    log(viewerId, 'request-renegotiate recebido do servidor');
     // Pode ser um pedido de recuperação (watchdog do fiscal, peer já
     // existe) OU um "reconectar" manual clicado por um fiscal que nunca
     // chegou a ser apresentado (corrida rara no momento da conexão) — nos
@@ -242,11 +290,14 @@ window.StudentWebRTC = (() => {
       track.onmute = () => onCaptureEndedCb('muted');
     }
 
-    for (const [, peer] of peers) {
+    for (const [viewerId, peer] of peers) {
       const senders = peer.pc.getSenders();
       for (const sender of senders) {
         const newTrack = newStream.getTracks().find((t) => t.kind === (sender.track ? sender.track.kind : 'video'));
-        if (newTrack) await sender.replaceTrack(newTrack);
+        if (newTrack) {
+          log(viewerId, 'substituindo track (replaceTrack) após restabelecer compartilhamento');
+          await sender.replaceTrack(newTrack);
+        }
       }
     }
 
@@ -254,6 +305,22 @@ window.StudentWebRTC = (() => {
     // navegador em todos os casos — garantimos que nenhuma track velha
     // continua ativa depois da troca.
     if (oldStream) oldStream.getTracks().forEach((t) => t.stop());
+  }
+
+  // Reinício manual e total: fecha TODAS as PeerConnections e recria do
+  // zero para cada fiscal atualmente conectado, reaproveitando a mesma
+  // MediaStream. Bom escape-hatch quando várias conexões parecem travadas
+  // ao mesmo tempo — o aluno não precisa parar de compartilhar a tela para
+  // isso, só força uma negociação nova para todo mundo.
+  function restartAllConnections() {
+    const viewerIds = Array.from(peers.keys());
+    log(null, `reiniciando transmissão para ${viewerIds.length} fiscal(is) conectado(s)`);
+    for (const viewerId of viewerIds) {
+      closePeer(viewerId);
+      createPeer(viewerId);
+      negotiate(viewerId);
+    }
+    return viewerIds.length;
   }
 
   function stopAll() {
@@ -269,6 +336,7 @@ window.StudentWebRTC = (() => {
     startCapture,
     bindSocket,
     updateStreamForAllPeers,
+    restartAllConnections,
     stopAll,
     getMediaStream: () => mediaStream,
     onStateChange: (cb) => { onStateChangeCb = cb; },

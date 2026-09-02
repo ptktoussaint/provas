@@ -172,6 +172,13 @@
     }
   });
 
+  document.getElementById('restart-broadcast-btn').addEventListener('click', () => {
+    const count = window.StudentWebRTC.restartAllConnections();
+    window.alert(count > 0
+      ? `Transmissão reiniciada para ${count} fiscal(is) conectado(s).`
+      : 'Nenhum fiscal conectado no momento — nada para reiniciar.');
+  });
+
   window.StudentWebRTC.onCaptureEnded(() => {
     if (examEnded) return;
     socket && socket.emit('stream:status', { status: 'interrupted' });

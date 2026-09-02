@@ -115,6 +115,7 @@
 
   function connectSocket() {
     const socket = io();
+    socket.on('connect_error', (err) => console.error('[socket] connect_error', err));
     socket.on('rooms:snapshot', (rooms) => {
       liveRooms.clear();
       for (const r of rooms) if (r) liveRooms.set(r.roomId, r);

@@ -24,35 +24,41 @@
   // pede mais confirmação de nome, entra direto ao abrir a página.
   async function autoIdentify() {
     const errorEl = document.getElementById('identify-error');
-    try {
-      const res = await fetch('/api/student/identify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentToken }),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        errorEl.textContent = data.message || 'Não foi possível acessar esta sala.';
-        return;
-      }
+    const hintEl = document.querySelector('#identify-screen .hint');
 
-      examInfo = data.exam;
-      document.getElementById('intro-exam-name').textContent = data.exam.name;
-      document.getElementById('intro-student-name').textContent = `${data.room.studentName} — ${data.room.roomLabel}`;
+    // Se estiver demorando muito (ex.: servidor "acordando" após ficar
+    // inativo), avisa em vez de deixar o texto estático parado sem
+    // nenhuma explicação.
+    const slowTimer = setTimeout(() => {
+      if (hintEl) hintEl.textContent = 'Isso está demorando mais que o normal — aguarde, o servidor pode estar iniciando...';
+    }, 6000);
 
-      connectSocket();
+    const data = await window.fetchJson('/api/student/identify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentToken }),
+    }, 20000);
+    clearTimeout(slowTimer);
 
-      // Requisito #57: verificar suporte antes de deixar prosseguir.
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-        showScreen('unsupported-screen');
-        return;
-      }
-
-      renderIntroVideo(data.exam.introVideoYoutubeId);
-      showScreen('intro-screen');
-    } catch (err) {
-      errorEl.textContent = 'Erro de conexão. Recarregue a página para tentar novamente.';
+    if (!data.success) {
+      errorEl.textContent = data.message || 'Não foi possível acessar esta sala.';
+      return;
     }
+
+    examInfo = data.exam;
+    document.getElementById('intro-exam-name').textContent = data.exam.name;
+    document.getElementById('intro-student-name').textContent = `${data.room.studentName} — ${data.room.roomLabel}`;
+
+    connectSocket();
+
+    // Requisito #57: verificar suporte antes de deixar prosseguir.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      showScreen('unsupported-screen');
+      return;
+    }
+
+    renderIntroVideo(data.exam.introVideoYoutubeId);
+    showScreen('intro-screen');
   }
   autoIdentify();
 
@@ -74,6 +80,7 @@
     socket = io();
     window.StudentWebRTC.bindSocket(socket);
 
+    socket.on('connect_error', (err) => console.error('[socket] connect_error', err));
     socket.on('auth:error', () => showError('Sua sessão expirou. Acesse novamente pelo link da sua sala.'));
     socket.on('room:closed', () => {
       cleanupAndStop();

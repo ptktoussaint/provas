@@ -39,13 +39,19 @@
   }
 
   async function init() {
+    const hintEl = document.querySelector('#loading-screen .hint');
+    const slowTimer = setTimeout(() => {
+      if (hintEl) hintEl.textContent = 'Isso está demorando mais que o normal — aguarde, o servidor pode estar iniciando...';
+    }, 6000);
+
     try {
-      const res = await fetch('/api/proctor/identify', {
+      const data = await window.fetchJson('/api/proctor/identify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ proctorToken }),
-      });
-      const data = await res.json();
+      }, 20000);
+      clearTimeout(slowTimer);
+
       if (!data.success) {
         showError(data.message || 'Link inválido.');
         return;
@@ -67,6 +73,7 @@
       await loadStatus();
       showScreen('room-screen');
     } catch (err) {
+      clearTimeout(slowTimer);
       showError('Erro de conexão. Recarregue a página para tentar novamente.');
     }
   }
@@ -75,6 +82,7 @@
     socket = io();
     window.ProctorWebRTC.bindSocket(socket);
 
+    socket.on('connect_error', (err) => console.error('[socket] connect_error', err));
     socket.on('auth:error', () => showError('Sua sessão expirou. Acesse novamente pelo link do fiscal.'));
     socket.on('room:closed', () => showError('Esta sala foi encerrada.'));
 

@@ -209,6 +209,15 @@ window.StudentWebRTC = (() => {
   }
 
   function handleRequestRenegotiate({ viewerId }) {
+    // Pode ser um pedido de recuperação (watchdog do fiscal, peer já
+    // existe) OU um "reconectar" manual clicado por um fiscal que nunca
+    // chegou a ser apresentado (corrida rara no momento da conexão) — nos
+    // dois casos o resultado certo é o mesmo: garantir que esse viewer
+    // tenha uma PeerConnection funcionando.
+    if (!peers.has(viewerId)) {
+      handleViewerJoined({ viewerId });
+      return;
+    }
     handleFailure(viewerId);
   }
 

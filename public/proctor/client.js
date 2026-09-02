@@ -173,5 +173,11 @@
     document.getElementById('unmute-btn').classList.add('hidden');
   });
 
+  document.getElementById('reconnect-stream-btn').addEventListener('click', () => {
+    if (!socket) return;
+    setStreamBadge('reconnecting');
+    socket.emit('webrtc:request-renegotiate');
+  });
+
   init();
 })();

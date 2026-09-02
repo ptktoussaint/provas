@@ -559,22 +559,35 @@
     if (!data.success) return;
 
     const tbody = document.getElementById('results-tbody');
-    if (data.attempts.length === 0) { tbody.innerHTML = '<tr><td colspan="8" class="list-empty">Nenhum resultado ainda.</td></tr>'; return; }
+    if (data.attempts.length === 0) { tbody.innerHTML = '<tr><td colspan="9" class="list-empty">Nenhum resultado ainda.</td></tr>'; return; }
 
+    // Sala + horário de início aparecem sempre, mesmo com nomes repetidos
+    // entre tentativas — cada linha é uma tentativa de uma sala específica,
+    // nunca se sobrescrevem entre si.
     tbody.innerHTML = data.attempts.map((a) => `
       <tr>
         <td>${escapeHtml(a.roomId ? a.roomId.studentName : a.studentName)}</td>
+        <td>${escapeHtml(a.roomId ? a.roomId.roomLabel : '—')}</td>
         <td>${escapeHtml(a.examId ? a.examId.name : '')}</td>
         <td>${a.status === 'in_progress' ? '—' : a.score}</td>
         <td>${a.status === 'in_progress' ? '—' : a.correctCount}</td>
         <td>${a.status === 'in_progress' ? '—' : a.wrongCount}</td>
         <td>${fmtDate(a.startedAt)}</td>
         <td><span class="badge ${a.status === 'in_progress' ? 'badge-warn' : 'badge-ok'}"><span class="badge-dot"></span>${a.status}</span></td>
-        <td><button class="small-btn secondary-btn" data-detail="${a._id}">Detalhes</button></td>
+        <td>
+          <button class="small-btn secondary-btn" data-detail="${a._id}">Detalhes</button>
+          <button class="small-btn danger-btn" data-delete-result="${a._id}">Apagar nota</button>
+        </td>
       </tr>
     `).join('');
 
     tbody.querySelectorAll('[data-detail]').forEach((btn) => btn.addEventListener('click', () => openDetail(btn.dataset.detail)));
+    tbody.querySelectorAll('[data-delete-result]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!window.confirm('Apagar esta nota permanentemente? A sala volta a ficar disponível para uma nova tentativa. Essa ação não pode ser desfeita.')) return;
+      const data2 = await api(`/results/${btn.dataset.deleteResult}`, { method: 'DELETE' });
+      if (!data2.success) { alert(data2.message || 'Erro ao apagar.'); return; }
+      loadResults();
+    }));
   }
 
   async function openDetail(attemptId, filter = 'all') {

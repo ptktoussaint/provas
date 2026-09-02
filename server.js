@@ -37,6 +37,13 @@ async function main() {
   const server = http.createServer(app);
   const io = new Server(server, {
     cors: { origin: false },
+    // Timeout de ping generoso: abas em segundo plano têm os timers do
+    // navegador desacelerados (throttling), o que pode atrasar a resposta
+    // ao ping do servidor mesmo com a aba/conexão real ainda viva — com o
+    // valor padrão (20s) isso derrubava o socket do aluno só por ele estar
+    // numa aba minimizada por um tempo, fazendo o fiscal ver "aluno
+    // offline" incorretamente.
+    pingTimeout: 60000,
   });
 
   app.set('trust proxy', 1);

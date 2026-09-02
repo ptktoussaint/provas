@@ -16,6 +16,7 @@ const { uploadImage } = require('../middleware/upload');
 const { generateToken, hashToken } = require('../lib/tokens');
 const { logSecurityEvent } = require('../lib/securityLog');
 const { OPTION_KEYS, DEFAULT_THEME } = require('../lib/constants');
+const { extractYoutubeId } = require('../lib/youtube');
 const { parseQuestionsCsv, EXPECTED_COLUMNS } = require('../lib/csvImport');
 const liveState = require('../lib/liveState');
 const { createSafeRouter } = require('../lib/safeRouter');
@@ -110,7 +111,7 @@ router.put('/settings', async (req, res) => {
   const { platformName, introVideoYoutubeId, theme, resetTheme } = req.body || {};
   const settings = await Settings.getOrCreate();
   if (typeof platformName === 'string' && platformName.trim()) settings.platformName = platformName.trim();
-  if (typeof introVideoYoutubeId === 'string') settings.introVideoYoutubeId = introVideoYoutubeId.trim() || null;
+  if (typeof introVideoYoutubeId === 'string') settings.introVideoYoutubeId = extractYoutubeId(introVideoYoutubeId);
 
   if (resetTheme) {
     settings.theme = { ...DEFAULT_THEME, backgroundImageUrl: settings.theme.backgroundImageUrl };
@@ -169,7 +170,7 @@ router.post('/exams', async (req, res) => {
     questionCount: Number(questionCount) || 50,
     pointsPerQuestion: Number(pointsPerQuestion) || 2,
     durationMinutes: Number(durationMinutes) || 120,
-    introVideoYoutubeId: introVideoYoutubeId ? String(introVideoYoutubeId).trim() : null,
+    introVideoYoutubeId: extractYoutubeId(introVideoYoutubeId),
     createdBy: req.session.admin.id,
   });
   await logSecurityEvent('exam_created', { meta: { examId: exam._id.toString(), name: exam.name }, ip: req.ip });
@@ -187,6 +188,7 @@ router.put('/exams/:examId', async (req, res) => {
       update[key] = req.body[key];
     }
   }
+  if ('introVideoYoutubeId' in update) update.introVideoYoutubeId = extractYoutubeId(update.introVideoYoutubeId);
 
   const exam = await Exam.findByIdAndUpdate(examId, update, { new: true, runValidators: true });
   if (!exam) return res.status(404).json({ success: false, message: 'Prova não encontrada.' });
@@ -529,6 +531,29 @@ router.get('/results/:attemptId', async (req, res) => {
       answeredAt: q.answeredAt,
     })),
   });
+});
+
+// Apaga só a NOTA/tentativa (mantém a sala, que volta a ficar disponível
+// para uma tentativa nova) — diferente de excluir a sala inteira. Nunca
+// afeta outras tentativas: cada uma é um documento independente amarrado
+// ao _id da sala, nunca ao nome digitado, então duas salas com o mesmo
+// nome de aluno jamais compartilham ou sobrescrevem uma tentativa.
+router.delete('/results/:attemptId', async (req, res) => {
+  const { attemptId } = req.params;
+  if (!isValidObjectId(attemptId)) return res.status(400).json({ success: false, message: 'ID inválido.' });
+
+  const attempt = await ExamAttempt.findById(attemptId);
+  if (!attempt) return res.status(404).json({ success: false, message: 'Tentativa não encontrada.' });
+
+  await ExamEvent.deleteMany({ attemptId });
+  await ExamAttempt.findByIdAndDelete(attemptId);
+  await Room.findOneAndUpdate(
+    { _id: attempt.roomId, currentAttemptId: attempt._id },
+    { currentAttemptId: null, status: 'pending' },
+  );
+
+  await logSecurityEvent('result_deleted_by_admin', { meta: { attemptId, roomId: attempt.roomId?.toString() }, ip: req.ip });
+  res.json({ success: true });
 });
 
 router.get('/exam-events', async (req, res) => {

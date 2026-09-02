@@ -248,7 +248,9 @@
   }
 
   async function selectAnswer(key) {
-    const q = attempt.questions[currentIndex];
+    const answeredIndex = currentIndex;
+    const q = attempt.questions[answeredIndex];
+    const wasAlreadyAnswered = Boolean(q.selectedKey);
     q.selectedKey = key;
     renderQuestion();
 
@@ -261,6 +263,19 @@
       const data = await res.json();
       if (!data.success) {
         if (/tempo/i.test(data.message || '')) finalizeUi('timeout');
+        return;
+      }
+
+      // Avança automaticamente só na primeira resposta desta questão (não
+      // quando o aluno só está trocando de alternativa numa já respondida)
+      // e só se ele ainda estiver olhando para essa mesma questão.
+      if (!wasAlreadyAnswered && currentIndex === answeredIndex && answeredIndex < attempt.questions.length - 1) {
+        setTimeout(() => {
+          if (currentIndex === answeredIndex) {
+            currentIndex = answeredIndex + 1;
+            renderQuestion();
+          }
+        }, 350);
       }
     } catch (err) {
       // Falha de rede momentânea — a seleção fica marcada localmente e o

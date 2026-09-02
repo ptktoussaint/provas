@@ -87,8 +87,13 @@ async function main() {
   app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads'), { maxAge: '1d' }));
   app.use('/shared', express.static(path.join(__dirname, 'public', 'shared')));
   app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
-  app.use('/aluno', express.static(path.join(__dirname, 'public', 'student')));
-  app.use('/professor', express.static(path.join(__dirname, 'public', 'proctor')));
+  // Os arquivos estáticos (CSS/JS) do aluno e do fiscal são referenciados no
+  // HTML como /student/... e /proctor/... (nomes das pastas em public/) —
+  // precisam ser servidos exatamente nesses caminhos. Isso é independente
+  // do link "bonito" em português (/aluno/:token, /professor/:token) que o
+  // admin gera e compartilha, tratado logo abaixo.
+  app.use('/student', express.static(path.join(__dirname, 'public', 'student')));
+  app.use('/proctor', express.static(path.join(__dirname, 'public', 'proctor')));
 
   // Rotas com token na URL (/aluno/:token, /professor/:token) servem sempre
   // o mesmo index.html do papel correspondente — a identificação real

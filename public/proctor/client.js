@@ -1,13 +1,19 @@
 (() => {
   const proctorToken = location.pathname.split('/').filter(Boolean)[1] || '';
 
-  const screens = ['loading-screen', 'room-screen', 'error-screen'];
+  const screens = ['loading-screen', 'room-screen', 'finished-screen', 'error-screen'];
   function showScreen(id) {
     for (const s of screens) document.getElementById(s).classList.toggle('hidden', s !== id);
   }
   function showError(message) {
     document.getElementById('error-message').textContent = message;
     showScreen('error-screen');
+  }
+  function showFinished(message) {
+    if (message) document.getElementById('finished-message').textContent = message;
+    window.ProctorWebRTC.stop();
+    if (socket) socket.disconnect();
+    showScreen('finished-screen');
   }
 
   const STREAM_LABELS = {
@@ -68,6 +74,7 @@
         if (playPromise) playPromise.catch(() => document.getElementById('unmute-btn').classList.remove('hidden'));
       });
       window.ProctorWebRTC.onStateChange(setStreamBadge);
+      setStreamBadge('awaiting-media');
 
       connectSocket();
       await loadStatus();
@@ -84,7 +91,7 @@
 
     socket.on('connect_error', (err) => console.error('[socket] connect_error', err));
     socket.on('auth:error', () => showError('Sua sessão expirou. Acesse novamente pelo link do fiscal.'));
-    socket.on('room:closed', () => showError('Esta sala foi encerrada.'));
+    socket.on('room:closed', () => { window.ProctorWebRTC.stop(); showError('Esta sala foi encerrada.'); });
 
     socket.on('exam:progress', ({ currentQuestionOrder, totalQuestions }) => {
       setBadge('badge-question', `Questão ${currentQuestionOrder}/${totalQuestions}`, 'badge-neutral');
@@ -109,10 +116,12 @@
       setBadge('badge-attempt', 'REALIZANDO PROVA', 'badge-ok');
     });
 
-    socket.on('attempt:finished', () => {
+    socket.on('attempt:finished', ({ reason } = {}) => {
       clearInterval(timerInterval);
-      setBadge('badge-attempt', 'PROVA FINALIZADA', 'badge-neutral');
-      document.getElementById('timer-value').textContent = '00:00:00';
+      const message = reason === 'timeout'
+        ? 'O tempo da prova acabou. A fiscalização desta sala foi encerrada.'
+        : 'O aluno finalizou a prova. A fiscalização desta sala foi encerrada.';
+      showFinished(message);
     });
   }
 

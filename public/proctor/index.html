@@ -35,11 +35,19 @@
 
       <div class="video-wrap">
         <video id="remote-video" autoplay muted playsinline></video>
-        <div class="video-overlay hidden" id="video-overlay">Aguardando o aluno iniciar a transmissão de tela...</div>
+        <div class="video-overlay" id="video-overlay">Aguardando o aluno iniciar a transmissão de tela...</div>
         <button class="unmute-btn hidden" id="unmute-btn">🔊 Ativar áudio</button>
       </div>
 
       <p class="proctor-note">Você está apenas observando. Não é possível responder, alterar respostas ou controlar o computador do aluno.</p>
+    </div>
+  </div>
+
+  <div id="finished-screen" class="screen center-screen hidden">
+    <div class="card">
+      <p class="logo-text js-wordmark">💜 PROVAS LIVE</p>
+      <h2>PROVA FINALIZADA</h2>
+      <p id="finished-message">O aluno finalizou a prova. A fiscalização desta sala foi encerrada.</p>
     </div>
   </div>
 

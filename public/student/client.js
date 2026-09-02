@@ -68,7 +68,17 @@
       frame.innerHTML = '<p class="hint">Nenhum vídeo introdutório configurado para esta prova.</p>';
       return;
     }
-    frame.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(youtubeId)}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+    // youtube.com em vez de youtube-nocookie.com — o domínio "no cookie"
+    // dispara o erro 153 ("Erro de configuração do player") com mais
+    // frequência para vídeos com certas restrições de incorporação; o
+    // domínio padrão é mais compatível. O parâmetro origin também ajuda o
+    // YouTube a validar a incorporação corretamente.
+    const src = `https://www.youtube.com/embed/${encodeURIComponent(youtubeId)}?origin=${encodeURIComponent(location.origin)}`;
+    frame.innerHTML = `
+      <iframe src="${src}" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+      <p class="hint" style="text-align:center;margin-top:8px">
+        Problemas para ver o vídeo aqui? <a href="https://www.youtube.com/watch?v=${encodeURIComponent(youtubeId)}" target="_blank" rel="noopener">Assista diretamente no YouTube</a>.
+      </p>`;
   }
 
   document.getElementById('intro-continue-btn').addEventListener('click', () => {
@@ -267,6 +277,11 @@
   });
 
   document.getElementById('finish-btn').addEventListener('click', () => {
+    const unanswered = attempt.questions.filter((q) => !q.selectedKey).length;
+    if (unanswered > 0) {
+      window.alert(`Você ainda não respondeu ${unanswered} questão(ões). Responda todas as questões antes de finalizar a prova.`);
+      return;
+    }
     if (window.confirm('Deseja realmente finalizar a prova? Esta ação não pode ser desfeita.')) {
       finishExam('manual');
     }

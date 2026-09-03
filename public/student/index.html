@@ -12,7 +12,13 @@
   <div id="conn-status" class="badge badge-neutral conn-status hidden"><span class="badge-dot"></span>Conectando ao servidor...</div>
   <div id="room-id-badge" class="badge badge-neutral conn-status hidden" style="top:44px"></div>
 
-  <div id="identify-screen" class="screen center-screen">
+  <div id="entry-screen" class="screen entry-screen">
+    <video id="entry-video" class="entry-video" src="/student/assets/entry-animation.mp4" autoplay muted playsinline></video>
+    <button id="entry-unmute-btn" class="unmute-btn hidden">🔊 Ativar áudio</button>
+    <button id="entry-skip-btn" class="entry-skip-btn hidden">Pular ›</button>
+  </div>
+
+  <div id="identify-screen" class="screen center-screen hidden">
     <div class="card">
       <p class="logo-text js-wordmark">🔥 PROVAS LIVE</p>
       <p class="hint">Carregando sua sala...</p>

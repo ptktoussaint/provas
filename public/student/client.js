@@ -17,9 +17,53 @@
   }
 
   function showError(message) {
+    dismissEntryScreen(true);
     document.getElementById('error-message').textContent = message;
     showScreen('error-screen');
   }
+
+  // ---------- Animação de entrada (splash ao abrir o link) ----------
+  // Fica por cima de tudo (fora do array `screens`, gerenciada à parte) até
+  // o vídeo terminar ou o aluno pular — só então revela o que já estiver
+  // pronto por baixo (tela de boas-vindas, "sem suporte", ou ainda
+  // "carregando" se a identificação demorar mais que o vídeo).
+  let entryDismissed = false;
+  function dismissEntryScreen(immediate) {
+    if (entryDismissed) return;
+    entryDismissed = true;
+    const entry = document.getElementById('entry-screen');
+    const video = document.getElementById('entry-video');
+    if (video) video.pause();
+    if (immediate) {
+      entry.classList.add('hidden');
+      return;
+    }
+    entry.classList.add('fade-out');
+    setTimeout(() => entry.classList.add('hidden'), 420);
+  }
+
+  (() => {
+    const video = document.getElementById('entry-video');
+    const skipBtn = document.getElementById('entry-skip-btn');
+    const unmuteBtn = document.getElementById('entry-unmute-btn');
+
+    video.addEventListener('ended', () => dismissEntryScreen(false));
+    skipBtn.addEventListener('click', () => dismissEntryScreen(false));
+    unmuteBtn.addEventListener('click', () => {
+      video.muted = false;
+      video.play().catch(() => {});
+      unmuteBtn.classList.add('hidden');
+    });
+
+    // Se o autoplay for bloqueado por algum motivo, não deixa o aluno preso
+    // numa tela preta sem saída — o botão "Pular" aparece de qualquer jeito
+    // depois de um instante.
+    video.play().catch(() => {});
+    setTimeout(() => {
+      skipBtn.classList.remove('hidden');
+      unmuteBtn.classList.remove('hidden');
+    }, 1500);
+  })();
 
   let socket = null;
   let examInfo = null;
@@ -51,6 +95,7 @@
     clearTimeout(slowTimer);
 
     if (!data.success) {
+      dismissEntryScreen(true);
       errorEl.textContent = data.message || 'Não foi possível acessar esta sala.';
       return;
     }

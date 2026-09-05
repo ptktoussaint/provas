@@ -40,6 +40,77 @@ function resolveRole(socket) {
 function registerAdmin(io, socket) {
   socket.join('admins');
   socket.emit('rooms:snapshot', liveState.allSummaries());
+
+  // Central de Monitoramento: o MESMO socket do admin pode assistir a
+  // transmissão de várias salas ao mesmo tempo — diferente do fiscal, cujo
+  // token só cobre uma sala. Usamos o próprio socket.id como viewerId (só
+  // precisa ser único dentro do Map de CADA sala, e cada sala tem o seu
+  // próprio Map, então não há colisão), mas como o mesmo viewerId agora
+  // pode estar "presente" em várias salas ao mesmo tempo, as mensagens que
+  // chegam a este socket vindas do aluno (oferta/ICE) precisam trazer o
+  // roomId — sem isso não haveria como saber de qual aluno veio cada uma
+  // (ver o roomId adicionado em registerStudent abaixo).
+  const viewerId = socket.id;
+  const watchedRooms = new Set();
+
+  function watchRoom(roomId) {
+    if (!roomId || watchedRooms.has(roomId)) return;
+    watchedRooms.add(roomId);
+    liveState.addProctor(roomId, viewerId, {
+      socketId: socket.id,
+      connectionId: viewerId,
+      connectedAt: Date.now(),
+      renegotiateAttempts: [],
+      isAdminMonitor: true,
+    });
+    const liveRoom = liveState.getRoom(roomId);
+    slog(`ADMIN monitorando roomId=${roomId} viewerId=${viewerId} — studentOnline=${liveRoom?.studentOnline}`);
+    if (liveRoom?.studentOnline && liveRoom.studentSocketId) {
+      io.to(liveRoom.studentSocketId).emit('viewer:joined', { viewerId, connectionId: viewerId });
+    }
+  }
+
+  function unwatchRoom(roomId) {
+    if (!watchedRooms.has(roomId)) return;
+    watchedRooms.delete(roomId);
+    liveState.removeProctor(roomId, viewerId);
+    const current = liveState.getRoom(roomId);
+    if (current?.studentSocketId) io.to(current.studentSocketId).emit('viewer:left', { viewerId });
+  }
+
+  safeOn(socket, 'admin:watch-room', ({ roomId } = {}) => watchRoom(roomId));
+  safeOn(socket, 'admin:unwatch-room', ({ roomId } = {}) => unwatchRoom(roomId));
+
+  safeOn(socket, 'webrtc:answer', ({ roomId, sdp } = {}) => {
+    const current = liveState.getRoom(roomId);
+    if (!current?.studentSocketId) return;
+    io.to(current.studentSocketId).emit('webrtc:answer', { viewerId, connectionId: viewerId, sdp });
+  });
+
+  safeOn(socket, 'webrtc:ice', ({ roomId, candidate } = {}) => {
+    const current = liveState.getRoom(roomId);
+    if (!current?.studentSocketId) return;
+    io.to(current.studentSocketId).emit('webrtc:ice', { viewerId, connectionId: viewerId, candidate });
+  });
+
+  safeOn(socket, 'webrtc:request-renegotiate', ({ roomId } = {}) => {
+    const current = liveState.getRoom(roomId);
+    const proctorInfo = current?.proctors.get(viewerId);
+    if (!current?.studentSocketId || !proctorInfo) return;
+
+    const now = Date.now();
+    proctorInfo.renegotiateAttempts = proctorInfo.renegotiateAttempts.filter((t) => now - t < RENEGOTIATE_WINDOW_MS);
+    if (proctorInfo.renegotiateAttempts.length >= RENEGOTIATE_MAX_ATTEMPTS) {
+      socket.emit('webrtc:renegotiate-exhausted', { roomId });
+      return;
+    }
+    proctorInfo.renegotiateAttempts.push(now);
+    io.to(current.studentSocketId).emit('request-renegotiate', { viewerId });
+  });
+
+  safeOn(socket, 'disconnect', () => {
+    for (const roomId of Array.from(watchedRooms)) unwatchRoom(roomId);
+  });
 }
 
 async function persistStreamEvent(attemptId, type, meta = null) {
@@ -81,12 +152,16 @@ function registerStudent(io, socket, room) {
   safeOn(socket, 'webrtc:offer', ({ viewerId, sdp }) => {
     slog(`ALUNO enviou webrtc:offer para viewerId=${viewerId}. proctor conhecido? ${liveRoom.proctors.has(viewerId)}`);
     if (!liveRoom.proctors.has(viewerId)) return;
-    io.to(viewerId).emit('webrtc:offer', { viewerId, connectionId: viewerId, sdp });
+    // roomId incluído porque a Central de Monitoramento do admin usa o
+    // MESMO socket/viewerId para várias salas ao mesmo tempo — sem isso o
+    // lado do admin não teria como saber de qual aluno veio esta oferta. O
+    // fiscal comum (uma sala só) simplesmente ignora este campo extra.
+    io.to(viewerId).emit('webrtc:offer', { viewerId, connectionId: viewerId, roomId, sdp });
   });
 
   safeOn(socket, 'webrtc:ice', ({ viewerId, candidate }) => {
     if (!liveRoom.proctors.has(viewerId)) return;
-    io.to(viewerId).emit('webrtc:ice', { viewerId, connectionId: viewerId, candidate });
+    io.to(viewerId).emit('webrtc:ice', { viewerId, connectionId: viewerId, roomId, candidate });
   });
 
   safeOn(socket, 'stream:status', async ({ status }) => {
@@ -218,7 +293,12 @@ function registerProctor(io, socket, room, proctorTokenId) {
 
 function initSockets(io) {
   liveState.on('change', (roomId) => {
-    io.to('admins').emit('room:update', liveState.summary(roomId));
+    // summary(roomId) volta null quando a sala foi removida (encerrada ou
+    // excluída) — sem incluir o roomId aqui também nesse caso, o painel não
+    // teria como saber QUAL sala sumiu para tirá-la da lista/parar de
+    // monitorar o vídeo dela.
+    const summary = liveState.summary(roomId);
+    io.to('admins').emit('room:update', summary || { roomId, removed: true });
   });
 
   io.on('connection', (socket) => {

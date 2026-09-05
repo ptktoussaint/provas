@@ -16,6 +16,7 @@ const { uploadImage, uploadVideo } = require('../middleware/upload');
 const { generateToken, hashToken } = require('../lib/tokens');
 const { logSecurityEvent } = require('../lib/securityLog');
 const { OPTION_KEYS, DEFAULT_THEME } = require('../lib/constants');
+const { buildIceServers } = require('../lib/turn');
 const { parseQuestionsCsv, EXPECTED_COLUMNS } = require('../lib/csvImport');
 const liveState = require('../lib/liveState');
 const { createSafeRouter } = require('../lib/safeRouter');
@@ -542,6 +543,12 @@ router.get('/dashboard', async (req, res) => {
 
 router.get('/rooms/live', (req, res) => {
   res.json({ success: true, rooms: liveState.allSummaries() });
+});
+
+// Usado pela Central de Monitoramento — mesmo mecanismo de TURN/STUN dos
+// fiscais, só muda o rótulo usado para gerar a credencial efêmera.
+router.get('/ice-servers', (req, res) => {
+  res.json({ success: true, ...buildIceServers(`admin:${req.session.admin.id}`) });
 });
 
 // ===================== Resultados e auditoria =====================

@@ -98,6 +98,8 @@
       btn.classList.add('active');
       document.querySelectorAll('.tab-panel').forEach((p) => p.classList.add('hidden'));
       document.getElementById(btn.dataset.tab).classList.remove('hidden');
+      if (btn.dataset.tab === 'monitor-tab') enterMonitorTab();
+      else leaveMonitorTab();
     });
   });
 
@@ -115,19 +117,162 @@
 
   function connectSocket() {
     const socket = io();
+    window.AdminMonitor.bindSocket(socket);
     socket.on('connect_error', (err) => console.error('[socket] connect_error', err));
     socket.on('rooms:snapshot', (rooms) => {
       liveRooms.clear();
       for (const r of rooms) if (r) liveRooms.set(r.roomId, r);
       renderLiveRooms();
+      if (monitorActive) { watchAllLiveRooms(); renderMonitorGrid(); }
     });
     socket.on('room:update', (room) => {
       if (!room) return;
+      if (room.removed) {
+        liveRooms.delete(room.roomId);
+        window.AdminMonitor.unwatchRoom(room.roomId);
+        renderLiveRooms();
+        if (monitorActive) renderMonitorGrid();
+        return;
+      }
       liveRooms.set(room.roomId, room);
       renderLiveRooms();
       loadDashboard();
+      if (monitorActive) {
+        window.AdminMonitor.watchRoom(room.roomId);
+        renderMonitorGrid();
+      }
     });
     socket.on('alert', () => loadDashboard());
+  }
+
+  // ---------------- Central de Monitoramento ----------------
+  let monitorActive = false;
+  let monitorIceReady = false;
+  const monitorVideos = new Map(); // roomId -> <video>
+
+  const MONITOR_STATE_LABEL = {
+    'awaiting-media': 'Aguardando o aluno compartilhar a tela...',
+    negotiating: 'Negociando conexão...',
+    'connecting-verify': 'Conectando...',
+    reconnecting: 'Reconectando...',
+    interrupted: 'Transmissão interrompida',
+    error: 'Erro — necessária intervenção manual',
+    left: 'Não observando mais',
+  };
+
+  function watchAllLiveRooms() {
+    for (const room of liveRooms.values()) if (room) window.AdminMonitor.watchRoom(room.roomId);
+  }
+
+  async function enterMonitorTab() {
+    monitorActive = true;
+    if (!monitorIceReady) {
+      await window.AdminMonitor.fetchIceServers();
+      monitorIceReady = true;
+    }
+    watchAllLiveRooms();
+    renderMonitorGrid();
+  }
+
+  function leaveMonitorTab() {
+    if (!monitorActive) return;
+    monitorActive = false;
+    window.AdminMonitor.unwatchAll();
+    collapseMonitorTile();
+  }
+
+  window.AdminMonitor.onStream((roomId, stream) => {
+    const video = monitorVideos.get(roomId);
+    if (video) video.srcObject = stream;
+  });
+
+  window.AdminMonitor.onStateChange((roomId, state) => {
+    const tile = document.querySelector(`[data-monitor-tile="${roomId}"]`);
+    if (!tile) return;
+    const overlay = tile.querySelector('[data-overlay]');
+    if (!overlay) return;
+    if (state === 'live') {
+      overlay.classList.add('hidden');
+    } else {
+      overlay.classList.remove('hidden');
+      overlay.textContent = MONITOR_STATE_LABEL[state] || state;
+    }
+  });
+
+  // Re-renderiza SEM destruir os <video> já existentes — trocar o innerHTML
+  // inteiro a cada atualização (aluno respondendo questão, foco, etc.)
+  // perderia o srcObject de qualquer transmissão já conectada, mesmo a
+  // PeerConnection continuando viva por baixo.
+  function renderMonitorGrid() {
+    const el = document.getElementById('monitor-grid');
+    const rooms = Array.from(liveRooms.values()).filter(Boolean);
+
+    if (rooms.length === 0) {
+      el.innerHTML = '<p class="list-empty">Nenhuma sala com atividade no momento.</p>';
+      monitorVideos.clear();
+      return;
+    }
+
+    const emptyMsg = el.querySelector('.list-empty');
+    if (emptyMsg) emptyMsg.remove();
+
+    const currentIds = new Set(rooms.map((r) => r.roomId));
+    el.querySelectorAll('[data-monitor-tile]').forEach((tileEl) => {
+      const id = tileEl.dataset.monitorTile;
+      if (!currentIds.has(id)) { tileEl.remove(); monitorVideos.delete(id); }
+    });
+
+    for (const room of rooms) {
+      let tile = el.querySelector(`[data-monitor-tile="${room.roomId}"]`);
+      if (!tile) {
+        tile = document.createElement('div');
+        tile.className = 'monitor-tile';
+        tile.dataset.monitorTile = room.roomId;
+        tile.innerHTML = `
+          <div class="monitor-tile-header">
+            <strong data-title></strong>
+            <span class="badge" data-stream-badge></span>
+          </div>
+          <div class="monitor-video-wrap">
+            <video autoplay muted playsinline></video>
+            <div class="monitor-video-overlay" data-overlay>Aguardando o aluno compartilhar a tela...</div>
+          </div>
+          <div class="monitor-tile-actions">
+            <button class="small-btn secondary-btn" data-expand>🔍 Ampliar</button>
+          </div>`;
+        el.appendChild(tile);
+        tile.querySelector('[data-expand]').onclick = () => expandMonitorTile(room.roomId);
+        monitorVideos.set(room.roomId, tile.querySelector('video'));
+      }
+
+      tile.querySelector('[data-title]').textContent = `${escapeHtml(room.roomLabel || room.roomId)} — ${escapeHtml(room.studentName || '')}`;
+      const streamCls = room.streamStatus === 'live' ? 'badge-ok' : (room.streamStatus === 'interrupted' || room.streamStatus === 'error') ? 'badge-danger' : 'badge-neutral';
+      const badge = tile.querySelector('[data-stream-badge]');
+      badge.className = `badge ${streamCls}`;
+      badge.innerHTML = `<span class="badge-dot"></span>${STREAM_LABEL[room.streamStatus] || room.streamStatus}${room.studentOnline ? '' : ' · offline'}`;
+    }
+  }
+
+  function expandMonitorTile(roomId) {
+    const grid = document.getElementById('monitor-grid');
+    const tile = grid.querySelector(`[data-monitor-tile="${roomId}"]`);
+    if (!tile) return;
+    grid.classList.add('is-expanded');
+    tile.classList.add('is-expanded-tile');
+    const btn = tile.querySelector('[data-expand]');
+    btn.textContent = '‹ Voltar';
+    btn.onclick = () => collapseMonitorTile();
+  }
+
+  function collapseMonitorTile() {
+    const grid = document.getElementById('monitor-grid');
+    grid.classList.remove('is-expanded');
+    grid.querySelectorAll('.monitor-tile.is-expanded-tile').forEach((tile) => {
+      tile.classList.remove('is-expanded-tile');
+      const roomId = tile.dataset.monitorTile;
+      const btn = tile.querySelector('[data-expand]');
+      if (btn) { btn.textContent = '🔍 Ampliar'; btn.onclick = () => expandMonitorTile(roomId); }
+    });
   }
 
   // ---------------- Dashboard ----------------

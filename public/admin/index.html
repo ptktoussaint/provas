@@ -54,6 +54,7 @@
         <button class="tab-btn active" data-tab="dashboard-tab">Dashboard</button>
         <button class="tab-btn" data-tab="exams-tab">Provas &amp; Questões</button>
         <button class="tab-btn" data-tab="rooms-tab">Salas</button>
+        <button class="tab-btn" data-tab="monitor-tab">Central de Monitoramento</button>
         <button class="tab-btn" data-tab="results-tab">Resultados</button>
         <button class="tab-btn" data-tab="security-tab">Segurança &amp; Auditoria</button>
       </div>
@@ -205,6 +206,19 @@
         </div>
       </div>
 
+      <!-- CENTRAL DE MONITORAMENTO -->
+      <div id="monitor-tab" class="tab-panel hidden">
+        <div class="panel-section">
+          <div class="panel-section-header">
+            <h3>Central de Monitoramento</h3>
+            <span class="hint" style="margin:0">Transmissões de tela ativas, em tempo real</span>
+          </div>
+          <div id="monitor-grid" class="monitor-grid">
+            <p class="list-empty">Nenhuma sala com atividade no momento.</p>
+          </div>
+        </div>
+      </div>
+
       <!-- RESULTADOS -->
       <div id="results-tab" class="tab-panel hidden">
         <div class="panel-section">
@@ -246,6 +260,7 @@
   <script src="/shared/http.js"></script>
   <script src="/shared/theme.js"></script>
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/admin/monitor.js"></script>
   <script src="/admin/client.js"></script>
 </body>
 </html>

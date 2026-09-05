@@ -38,3 +38,64 @@
 .audit-option { padding: 6px 10px; border-radius: 6px; font-size: 13px; margin-bottom: 4px; background: var(--bg-input); }
 .audit-option.is-selected { border: 1px solid var(--accent-2); }
 .audit-option.is-correct { border: 1px solid var(--success); }
+
+/* ---------------- Central de Monitoramento ---------------- */
+.monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.monitor-tile {
+  background: var(--bg-item);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.monitor-tile-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.monitor-tile-header strong { font-size: 13px; }
+
+.monitor-video-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.monitor-video-wrap video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+
+.monitor-video-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.monitor-tile-actions { display: flex; justify-content: flex-end; }
+.monitor-tile-actions button { margin: 0; }
+
+/* Modo ampliado: some com as outras, a escolhida ocupa a tela inteira. */
+.monitor-grid.is-expanded { display: block; }
+.monitor-grid.is-expanded .monitor-tile { display: none; }
+.monitor-grid.is-expanded .monitor-tile.is-expanded-tile {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  border-radius: 0;
+  padding: 18px;
+  background: #050505;
+}
+.monitor-grid.is-expanded .monitor-tile.is-expanded-tile .monitor-video-wrap { flex: 1; aspect-ratio: unset; }
+.monitor-grid.is-expanded .monitor-tile.is-expanded-tile .monitor-tile-header strong { font-size: 16px; }

@@ -4,22 +4,11 @@ Plataforma de prova online com fiscalização remota via WebRTC (compartilhament
 
 Base original: reaproveitado do projeto anterior "UPS FLUXO LIVE" (mesma stack, identidade visual trocada de roxo para vermelho).
 
-## ⚠️ Antes de qualquer coisa: DOIS repositórios
+## ⚠️ Repositório único: `provas`
 
-Este projeto vive em **dois repositórios GitHub sem remote entre si** — toda mudança precisa ser copiada e commitada manualmente nos dois, sempre:
+Este projeto usa **só `ptktoussaint/provas` (branch `main`)** — é o repositório de trabalho E o que o Render usa para o deploy real. Editar, testar, commitar e dar push sempre aqui.
 
-| Repositório | Branch | Papel |
-|---|---|---|
-| `ptktoussaint/stage-fx-designer` | `claude/ups-fluxo-site-memory-abn954` | Repositório de trabalho principal (histórico completo de decisões nos commits) |
-| `ptktoussaint/provas` | `main` | **É esse que o Render usa para o deploy real** |
-
-Fluxo de trabalho padrão ao final de qualquer mudança:
-1. Editar e testar em `stage-fx-designer`.
-2. `cp` os arquivos alterados para o clone de `provas` (mesmos caminhos relativos).
-3. Rodar `npm test` nos dois.
-4. Commitar e `git push` nos dois, com a mesma mensagem.
-
-Esquecer de sincronizar um dos dois é a causa mais comum de "eu já corrigi isso, por que ainda está quebrado no site?" — o site em produção só reflete `provas`.
+Existiu um segundo repositório (`ptktoussaint/stage-fx-designer`) usado no início do projeto para desenvolvimento, com o código copiado manualmente para cá a cada mudança. **Isso foi descontinuado por decisão explícita do usuário — não editar, não copiar de lá, não usar esse repositório para mais nada.** Se ele for mencionado em algum commit antigo ou nota do Obsidian, é só histórico.
 
 ## Stack
 

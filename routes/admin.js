@@ -304,6 +304,15 @@ router.get('/exams/:examId/questions', async (req, res) => {
   res.json({ success: true, questions });
 });
 
+// Compara sem se importar com maiúsculas/espaços — "Qual a capital?" e
+// "qual a capital? " são a mesma pergunta na prática. Usado para nunca
+// deixar a mesma pergunta entrar duas vezes no banco de uma prova, seja
+// criando manualmente, seja importando um CSV (requisito do usuário: banco
+// duplicado fazia a mesma pergunta cair duas vezes na prova do mesmo aluno).
+function normalizeQuestionText(text) {
+  return String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 function validateQuestionPayload(body) {
   const { text, options, correctKey } = body || {};
   if (!text || !String(text).trim()) return 'Texto da pergunta é obrigatório.';
@@ -327,6 +336,12 @@ router.post('/exams/:examId/questions', async (req, res) => {
   if (error) return res.status(400).json({ success: false, message: error });
 
   const { text, options, correctKey } = req.body;
+  const normalized = normalizeQuestionText(text);
+  const existing = await Question.find({ examId }).select('text').lean();
+  if (existing.some((q) => normalizeQuestionText(q.text) === normalized)) {
+    return res.status(409).json({ success: false, message: 'Já existe uma questão com este mesmo texto nesta prova.' });
+  }
+
   const question = await Question.create({
     examId,
     text: String(text).trim(),
@@ -362,8 +377,24 @@ router.post('/exams/:examId/questions/import', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Nenhuma questão válida encontrada no arquivo.', errors });
   }
 
-  const docs = questions.map((q) => ({ examId, text: q.text, options: q.options, correctKey: q.correctKey }));
-  const inserted = await Question.insertMany(docs, { ordered: false });
+  // Nunca deixar a mesma pergunta entrar duas vezes — nem contra o que já
+  // existe no banco (ex.: reimportar o mesmo arquivo por engano), nem entre
+  // linhas do próprio arquivo (a planilha de origem já pode ter vindo com
+  // repetições). Isso é reportado como erro por linha, igual aos demais.
+  const existingTexts = await Question.find({ examId }).select('text').lean();
+  const seenNormalized = new Set(existingTexts.map((q) => normalizeQuestionText(q.text)));
+  const toInsert = [];
+  for (const q of questions) {
+    const normalized = normalizeQuestionText(q.text);
+    if (seenNormalized.has(normalized)) {
+      errors.push({ row: q.row, reason: 'Pergunta duplicada (já existe no banco ou repetida no arquivo) — não importada.' });
+      continue;
+    }
+    seenNormalized.add(normalized);
+    toInsert.push({ examId, text: q.text, options: q.options, correctKey: q.correctKey });
+  }
+
+  const inserted = toInsert.length > 0 ? await Question.insertMany(toInsert, { ordered: false }) : [];
 
   await logSecurityEvent('questions_imported', { meta: { examId, count: inserted.length, errorCount: errors.length }, ip: req.ip });
   res.status(201).json({ success: true, imported: inserted.length, errors });
@@ -377,6 +408,14 @@ router.put('/questions/:questionId', async (req, res) => {
   if (error) return res.status(400).json({ success: false, message: error });
 
   const { text, options, correctKey } = req.body;
+  const current = await Question.findById(questionId).select('examId').lean();
+  if (!current) return res.status(404).json({ success: false, message: 'Questão não encontrada.' });
+  const normalized = normalizeQuestionText(text);
+  const others = await Question.find({ examId: current.examId, _id: { $ne: questionId } }).select('text').lean();
+  if (others.some((q) => normalizeQuestionText(q.text) === normalized)) {
+    return res.status(409).json({ success: false, message: 'Já existe outra questão com este mesmo texto nesta prova.' });
+  }
+
   const question = await Question.findByIdAndUpdate(
     questionId,
     { text: String(text).trim(), options: options.map((o) => ({ key: o.key, text: String(o.text).trim() })), correctKey },

@@ -22,6 +22,13 @@
       .replace(/'/g, '&#39;');
   }
 
+  // Mesma normalização usada no servidor (routes/admin.js) para detectar
+  // duplicatas — precisa ser idêntica para o aviso aqui bater com o que o
+  // servidor de fato bloqueia.
+  function normalizeQuestionText(text) {
+    return String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
   function fmtDate(d) {
     if (!d) return '—';
     return new Date(d).toLocaleString('pt-BR');
@@ -682,9 +689,22 @@
     const el = document.getElementById('questions-list');
     if (questionsCache.length === 0) { el.innerHTML = '<p class="list-empty">Nenhuma questão cadastrada nesta prova.</p>'; return; }
 
-    el.innerHTML = questionsCache.map((q) => `
+    // Aponta quais questões já existentes no banco têm o mesmo texto (ex.:
+    // vieram de um CSV reimportado ou do botão "Duplicar") — a checagem no
+    // servidor (routes/admin.js) só impede duplicata NOVA a partir de agora,
+    // então isso aqui é o jeito do admin achar e limpar o que já está
+    // duplicado hoje.
+    const countByText = new Map();
+    questionsCache.forEach((q) => {
+      const key = normalizeQuestionText(q.text);
+      countByText.set(key, (countByText.get(key) || 0) + 1);
+    });
+
+    el.innerHTML = questionsCache.map((q) => {
+      const isDuplicate = countByText.get(normalizeQuestionText(q.text)) > 1;
+      return `
       <div class="item-row question-item" data-question-id="${q._id}">
-        <div class="q-text">${escapeHtml(q.text)}</div>
+        <div class="q-text">${isDuplicate ? '<span class="badge badge-warn" title="Existe outra questão com este mesmo texto nesta prova">⚠ Duplicada</span> ' : ''}${escapeHtml(q.text)}</div>
         <div class="q-options">
           ${q.options.map((o) => `<span class="${o.key === q.correctKey ? 'correct' : ''}">${o.key} — ${escapeHtml(o.text)}${o.key === q.correctKey ? ' ✓' : ''}</span>`).join('')}
         </div>
@@ -696,7 +716,8 @@
           <button class="small-btn danger-btn" data-delete="${q._id}">Excluir</button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     el.querySelectorAll('[data-edit]').forEach((btn) => btn.addEventListener('click', () => {
       const q = questionsCache.find((x) => x._id === btn.dataset.edit);

@@ -219,11 +219,13 @@ function registerStudent(io, socket, room) {
 function registerProctor(io, socket, room, proctorTokenId) {
   const roomId = room._id.toString();
   const viewerId = socket.id;
+  const tokenLabel = proctorTokenId && room.proctorTokens.id(proctorTokenId)?.label;
 
   liveState.addProctor(roomId, viewerId, {
     socketId: socket.id,
     connectionId: viewerId,
     proctorTokenId,
+    label: tokenLabel || null,
     connectedAt: Date.now(),
     renegotiateAttempts: [],
   });
@@ -234,11 +236,8 @@ function registerProctor(io, socket, room, proctorTokenId) {
   // — histórico de "quem fiscalizou" fica na própria nota, sem depender da
   // sala continuar existindo depois. $addToSet evita duplicar o mesmo nome
   // se o fiscal recarregar a página e reconectar.
-  if (room.currentAttemptId) {
-    const tokenEntry = proctorTokenId && room.proctorTokens.id(proctorTokenId);
-    if (tokenEntry && tokenEntry.label) {
-      ExamAttempt.findByIdAndUpdate(room.currentAttemptId, { $addToSet: { proctorNames: tokenEntry.label } }).catch(() => {});
-    }
+  if (room.currentAttemptId && tokenLabel) {
+    ExamAttempt.findByIdAndUpdate(room.currentAttemptId, { $addToSet: { proctorNames: tokenLabel } }).catch(() => {});
   }
 
   const liveRoom = liveState.getRoom(roomId);

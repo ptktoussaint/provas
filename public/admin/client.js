@@ -233,6 +233,7 @@
             <strong data-title></strong>
             <span class="badge" data-stream-badge></span>
           </div>
+          <p class="hint" data-proctors style="margin:0"></p>
           <div class="monitor-video-wrap">
             <video autoplay muted playsinline></video>
             <div class="monitor-video-overlay" data-overlay>Aguardando o aluno compartilhar a tela...</div>
@@ -250,6 +251,9 @@
       const badge = tile.querySelector('[data-stream-badge]');
       badge.className = `badge ${streamCls}`;
       badge.innerHTML = `<span class="badge-dot"></span>${STREAM_LABEL[room.streamStatus] || room.streamStatus}${room.studentOnline ? '' : ' · offline'}`;
+      tile.querySelector('[data-proctors]').textContent = (room.activeProctorNames && room.activeProctorNames.length)
+        ? `Fiscal(is): ${room.activeProctorNames.join(', ')}`
+        : 'Nenhum fiscal conectado';
     }
   }
 
@@ -311,6 +315,9 @@
       const streamCls = r.streamStatus === 'live' ? 'badge-ok' : r.streamStatus === 'interrupted' || r.streamStatus === 'error' ? 'badge-danger' : 'badge-neutral';
       const focusCls = r.focusStatus === 'out' ? 'badge-warn' : 'badge-ok';
       const timeLabel = r.timeRemainingMs != null ? fmtDuration(r.timeRemainingMs) : '—';
+      const proctorLabel = (r.activeProctorNames && r.activeProctorNames.length)
+        ? `${r.proctorCount} fiscal(is): ${r.activeProctorNames.join(', ')}`
+        : `${r.proctorCount} fiscal(is)`;
       return `
       <div class="item-row live-room-card">
         <div class="live-room-top">
@@ -322,7 +329,7 @@
           <span class="badge ${focusCls}"><span class="badge-dot"></span>${r.focusStatus === 'out' ? 'Fora da tela' : 'Na prova'}</span>
           <span class="badge badge-neutral"><span class="badge-dot"></span>Questão ${r.currentQuestionOrder || 0}/${r.totalQuestions || 0}</span>
           <span class="badge badge-neutral"><span class="badge-dot"></span>${timeLabel} restante</span>
-          <span class="badge badge-neutral"><span class="badge-dot"></span>${r.proctorCount} fiscal(is)</span>
+          <span class="badge badge-neutral"><span class="badge-dot"></span>${escapeHtml(proctorLabel)}</span>
         </div>
         <div class="live-room-badges">
           <button class="small-btn secondary-btn" data-live-student-link="${r.roomId}">🔗 Link do aluno</button>

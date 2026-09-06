@@ -16,6 +16,34 @@
     <div class="card"><p class="hint">Conectando à sala...</p></div>
   </div>
 
+  <div id="welcome-screen" class="screen center-screen hidden welcome-screen">
+    <div class="fire-sparks-layer" id="welcome-sparks"></div>
+    <div class="spotlight-layer" id="welcome-spotlight"></div>
+    <div class="welcome-glow-ring"></div>
+    <div class="card wide welcome-card">
+      <img class="js-logo hidden welcome-logo" alt="Logo" />
+      <p class="logo-text js-wordmark js-logo-fallback welcome-wordmark">PROVAS LIVE</p>
+      <h1 class="welcome-title">Olá, <span id="welcome-proctor-name">Fiscal</span>!</h1>
+      <p class="welcome-text">
+        Você foi convidado(a) para atuar como fiscal na prova de <strong id="welcome-student-name">um candidato</strong>.
+        Agradecemos muito a sua disponibilidade e apoio — seu acompanhamento é fundamental
+        para garantir a lisura e a idoneidade de todo o processo.
+      </p>
+      <p class="welcome-text">
+        Durante a prova, fique atento(a) aos movimentos do candidato e a qualquer tentativa de
+        troca de tela ou aplicativo.
+      </p>
+      <ul class="welcome-list">
+        <li>A transmissão de tela é <strong>obrigatória</strong> durante toda a prova.</li>
+        <li id="welcome-duration-item">O candidato terá <strong id="welcome-duration">algum tempo</strong> para concluir a prova.</li>
+        <li>Não é possível enviar a prova com questões em branco.</li>
+        <li>O candidato pode navegar livremente entre as questões, pulando e retornando quando quiser.</li>
+        <li>Ao término da prova, acione o(a) Supervisor(a) responsável para a segunda etapa.</li>
+      </ul>
+      <button id="welcome-start-btn" class="welcome-start-btn">ENTRAR NA SALA</button>
+    </div>
+  </div>
+
   <div id="room-screen" class="screen hidden">
     <div class="proctor-layout">
       <div class="proctor-header">
@@ -64,6 +92,8 @@
 
   <script src="/shared/http.js"></script>
   <script src="/shared/theme.js"></script>
+  <script src="/shared/spotlight.js"></script>
+  <script src="/shared/sparks.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/proctor/webrtc-proctor.js"></script>
   <script src="/proctor/client.js"></script>

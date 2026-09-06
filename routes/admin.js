@@ -27,6 +27,16 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id);
 }
 
+// Aceita logo/imagem de fundo/vídeo por link externo, como alternativa ao
+// upload direto — o disco do Render é efêmero (some a cada redeploy), então
+// um link hospedado em outro lugar (GitHub, Google Drive com link direto,
+// etc.) sobrevive a qualquer novo deploy sem precisar reenviar o arquivo.
+// Só http(s) — nunca aceitar "javascript:"/"data:" aqui, viraria o `src` de
+// uma tag <img>/<video> renderizada para qualquer visitante do link.
+function isHttpUrl(value) {
+  return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+}
+
 // ===================== Autenticação =====================
 
 // Primeiro acesso: enquanto não existir NENHUM administrador cadastrado no
@@ -112,9 +122,19 @@ const HEX_COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
 const THEME_COLOR_FIELDS = ['primaryColorLight', 'primaryColor', 'primaryColorDark', 'backgroundColor', 'cardColor'];
 
 router.put('/settings', async (req, res) => {
-  const { platformName, theme, resetTheme } = req.body || {};
+  const { platformName, theme, resetTheme, logoUrl, introVideoUrl } = req.body || {};
   const settings = await Settings.getOrCreate();
   if (typeof platformName === 'string' && platformName.trim()) settings.platformName = platformName.trim();
+
+  // Link direto como alternativa ao upload — ver comentário de isHttpUrl().
+  if (typeof logoUrl === 'string') {
+    if (logoUrl.trim() && !isHttpUrl(logoUrl)) return res.status(400).json({ success: false, message: 'Link da logo inválido — use um link http(s) direto para a imagem.' });
+    settings.logoUrl = logoUrl.trim() || null;
+  }
+  if (typeof introVideoUrl === 'string') {
+    if (introVideoUrl.trim() && !isHttpUrl(introVideoUrl)) return res.status(400).json({ success: false, message: 'Link do vídeo inválido — use um link http(s) direto para o arquivo.' });
+    settings.introVideoUrl = introVideoUrl.trim() || null;
+  }
 
   if (resetTheme) {
     settings.theme = { ...DEFAULT_THEME, backgroundImageUrl: settings.theme.backgroundImageUrl };
@@ -126,6 +146,12 @@ router.put('/settings', async (req, res) => {
         }
         settings.theme[field] = theme[field];
       }
+    }
+    if (typeof theme.backgroundImageUrl === 'string') {
+      if (theme.backgroundImageUrl.trim() && !isHttpUrl(theme.backgroundImageUrl)) {
+        return res.status(400).json({ success: false, message: 'Link da imagem de fundo inválido — use um link http(s) direto para a imagem.' });
+      }
+      settings.theme.backgroundImageUrl = theme.backgroundImageUrl.trim() || null;
     }
   }
 
@@ -206,6 +232,16 @@ router.put('/exams/:examId', async (req, res) => {
     if (req.body && Object.prototype.hasOwnProperty.call(req.body, key)) {
       update[key] = req.body[key];
     }
+  }
+
+  // Link direto para o vídeo desta prova, como alternativa ao upload — ver
+  // isHttpUrl() e POST /exams/:examId/intro-video.
+  if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'introVideoUrl')) {
+    const { introVideoUrl } = req.body;
+    if (typeof introVideoUrl === 'string' && introVideoUrl.trim() && !isHttpUrl(introVideoUrl)) {
+      return res.status(400).json({ success: false, message: 'Link do vídeo inválido — use um link http(s) direto para o arquivo.' });
+    }
+    update.introVideoUrl = (typeof introVideoUrl === 'string' && introVideoUrl.trim()) || null;
   }
 
   const exam = await Exam.findByIdAndUpdate(examId, update, { new: true, runValidators: true });

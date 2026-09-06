@@ -230,6 +230,17 @@ function registerProctor(io, socket, room, proctorTokenId) {
 
   logExamEvent({ roomId, actor: 'proctor', type: 'proctor_connected', meta: { viewerId } });
 
+  // Registra o nome do fiscal na tentativa em andamento (se já houver uma)
+  // — histórico de "quem fiscalizou" fica na própria nota, sem depender da
+  // sala continuar existindo depois. $addToSet evita duplicar o mesmo nome
+  // se o fiscal recarregar a página e reconectar.
+  if (room.currentAttemptId) {
+    const tokenEntry = proctorTokenId && room.proctorTokens.id(proctorTokenId);
+    if (tokenEntry && tokenEntry.label) {
+      ExamAttempt.findByIdAndUpdate(room.currentAttemptId, { $addToSet: { proctorNames: tokenEntry.label } }).catch(() => {});
+    }
+  }
+
   const liveRoom = liveState.getRoom(roomId);
   slog(`FISCAL conectado. roomId=${roomId} viewerId=${viewerId} — studentOnline=${liveRoom.studentOnline} studentSocketId=${liveRoom.studentSocketId}`);
   if (liveRoom.studentOnline && liveRoom.studentSocketId) {

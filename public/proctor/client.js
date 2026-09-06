@@ -1,7 +1,7 @@
 (() => {
   const proctorToken = location.pathname.split('/').filter(Boolean)[1] || '';
 
-  const screens = ['loading-screen', 'room-screen', 'finished-screen', 'error-screen'];
+  const screens = ['loading-screen', 'welcome-screen', 'room-screen', 'finished-screen', 'error-screen'];
   function showScreen(id) {
     for (const s of screens) document.getElementById(s).classList.toggle('hidden', s !== id);
   }
@@ -31,6 +31,16 @@
   let expiresAt = null;
   let clockOffset = 0;
   let timerInterval = null;
+  let stopWelcomeSparks = null;
+
+  function formatDuration(minutes) {
+    if (!minutes) return null;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h && m) return `${h}h${String(m).padStart(2, '0')}`;
+    if (h) return h === 1 ? '1 hora' : `${h} horas`;
+    return `${m} minutos`;
+  }
 
   function setBadge(id, text, cls) {
     const el = document.getElementById(id);
@@ -43,6 +53,8 @@
     setBadge('badge-stream', label, cls);
     document.getElementById('video-overlay').classList.toggle('hidden', state === 'live');
   }
+
+  let identifyData = null;
 
   async function init() {
     const hintEl = document.querySelector('#loading-screen .hint');
@@ -63,14 +75,42 @@
         return;
       }
 
-      document.getElementById('room-title').textContent = data.room.roomLabel;
-      document.getElementById('room-sub').textContent = `Aluno: ${data.room.studentName}${data.exam.name ? ' — ' + data.exam.name : ''}`;
+      identifyData = data;
 
       if (data.room.roomId) {
         const idBadge = document.getElementById('room-id-badge');
         idBadge.classList.remove('hidden');
         idBadge.innerHTML = `<span class="badge-dot"></span>Sala #${data.room.roomId.slice(-6)}`;
       }
+
+      document.getElementById('welcome-proctor-name').textContent = data.proctorName || 'Fiscal';
+      document.getElementById('welcome-student-name').textContent = data.room.studentName || 'um candidato';
+      const durationText = formatDuration(data.exam && data.exam.durationMinutes);
+      const durationItem = document.getElementById('welcome-duration-item');
+      if (durationText) {
+        document.getElementById('welcome-duration').textContent = durationText;
+      } else if (durationItem) {
+        durationItem.classList.add('hidden');
+      }
+
+      showScreen('welcome-screen');
+      stopWelcomeSparks = window.FireSparks.start(document.getElementById('welcome-sparks'));
+    } catch (err) {
+      clearTimeout(slowTimer);
+      showError('Erro de conexão. Recarregue a página para tentar novamente.');
+    }
+  }
+
+  document.getElementById('welcome-start-btn').addEventListener('click', enterRoom);
+  window.initCursorSpotlight(document.getElementById('welcome-spotlight'));
+
+  async function enterRoom() {
+    if (stopWelcomeSparks) { stopWelcomeSparks(); stopWelcomeSparks = null; }
+    const data = identifyData;
+
+    try {
+      document.getElementById('room-title').textContent = data.room.roomLabel;
+      document.getElementById('room-sub').textContent = `Aluno: ${data.room.studentName}${data.exam && data.exam.name ? ' — ' + data.exam.name : ''}`;
 
       await window.ProctorWebRTC.fetchIceServers();
 
@@ -86,7 +126,6 @@
       await loadStatus();
       showScreen('room-screen');
     } catch (err) {
-      clearTimeout(slowTimer);
       showError('Erro de conexão. Recarregue a página para tentar novamente.');
     }
   }

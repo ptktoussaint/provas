@@ -89,6 +89,13 @@
             <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Enviar vídeo</button>
             <button type="button" class="small-btn secondary-btn" id="remove-settings-intro-video-btn" style="align-self:flex-end">Remover</button>
           </form>
+          <form id="settings-intro-video-url-form" class="inline-form" style="margin-top:8px">
+            <div class="field-group" style="flex:2;min-width:260px">
+              <label>...ou cole o link direto do vídeo (fica salvo mesmo depois de um novo deploy)</label>
+              <input id="settings-intro-video-url" placeholder="https://..." />
+            </div>
+            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Salvar link</button>
+          </form>
         </div>
 
         <div class="panel-section">
@@ -130,6 +137,13 @@
             <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Enviar</button>
             <button type="button" class="small-btn secondary-btn" id="remove-background-btn" style="align-self:flex-end">Remover</button>
           </form>
+          <form id="settings-background-url-form" class="inline-form" style="margin-top:8px">
+            <div class="field-group" style="flex:2;min-width:220px">
+              <label>...ou cole o link direto da imagem (fica salvo mesmo depois de um novo deploy)</label>
+              <input id="settings-background-url" placeholder="https://..." />
+            </div>
+            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Salvar link</button>
+          </form>
 
           <form id="settings-logo-form" class="inline-form" style="margin-top:14px">
             <div class="field-group" style="flex:2;min-width:220px">
@@ -137,6 +151,13 @@
               <input type="file" id="settings-logo-file" accept="image/png,image/jpeg,image/webp" />
             </div>
             <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Enviar logo</button>
+          </form>
+          <form id="settings-logo-url-form" class="inline-form" style="margin-top:8px">
+            <div class="field-group" style="flex:2;min-width:220px">
+              <label>...ou cole o link direto da logo (fica salvo mesmo depois de um novo deploy)</label>
+              <input id="settings-logo-url" placeholder="https://..." />
+            </div>
+            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Salvar link</button>
           </form>
         </div>
 
@@ -224,11 +245,30 @@
         <div class="panel-section">
           <div class="panel-section-header">
             <h3>Resultados</h3>
-            <select id="results-exam-filter" style="max-width:220px"></select>
+          </div>
+          <div class="inline-form" style="margin-bottom:14px">
+            <div class="field-group">
+              <label>Prova</label>
+              <select id="results-exam-filter"></select>
+            </div>
+            <div class="field-group">
+              <label>Ordenar por</label>
+              <select id="results-sort">
+                <option value="date-desc">Data (mais recente)</option>
+                <option value="date-asc">Data (mais antiga)</option>
+                <option value="score-desc">Nota (maior primeiro)</option>
+                <option value="score-asc">Nota (menor primeiro)</option>
+                <option value="student-asc">Aluno (A-Z)</option>
+              </select>
+            </div>
+            <div class="field-group" style="flex:2;min-width:200px">
+              <label>Filtrar por fiscal</label>
+              <input id="results-proctor-filter" placeholder="Nome do fiscal..." />
+            </div>
           </div>
           <div class="table-scroll">
             <table class="data-table">
-              <thead><tr><th>Aluno</th><th>Sala</th><th>Prova</th><th>Nota</th><th>Acertos</th><th>Erros</th><th>Início</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Aluno</th><th>Sala</th><th>Prova</th><th>Fiscal(is)</th><th>Nota</th><th>Acertos</th><th>Erros</th><th>Início</th><th>Status</th><th></th></tr></thead>
               <tbody id="results-tbody"></tbody>
             </table>
           </div>

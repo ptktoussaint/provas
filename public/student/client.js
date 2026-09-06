@@ -28,6 +28,7 @@
   let currentIndex = 0;
   let timerInterval = null;
   let examEnded = false;
+  let stopWelcomeSparks = null;
 
   // ---------- Passo 1: identificação automática pelo link ----------
   // O link já foi gerado pelo admin especificamente para este aluno — não
@@ -80,6 +81,7 @@
     }
 
     showScreen('welcome-screen');
+    stopWelcomeSparks = window.FireSparks.start(document.getElementById('welcome-sparks'));
   }
   autoIdentify();
 
@@ -93,6 +95,7 @@
   // compartilhamento, sem exigir nenhuma etapa extra do aluno quando o
   // admin não anexou nenhum vídeo a esta prova.
   document.getElementById('welcome-start-btn').addEventListener('click', () => {
+    if (stopWelcomeSparks) { stopWelcomeSparks(); stopWelcomeSparks = null; }
     if (examInfo && examInfo.introVideoUrl) {
       renderIntroVideo(examInfo.introVideoUrl);
       showScreen('intro-screen');
@@ -105,19 +108,7 @@
     showScreen('share-screen');
   });
 
-  // Efeito de luz que segue o cursor na tela de boas-vindas — só a posição
-  // (--mx/--my) muda aqui, o visual (gradiente, cor, blend) fica todo em
-  // CSS. Também responde a toque, para não deixar a tela "morta" em tablets.
-  const welcomeSpotlight = document.getElementById('welcome-spotlight');
-  function moveSpotlight(x, y) {
-    welcomeSpotlight.style.setProperty('--mx', `${x}px`);
-    welcomeSpotlight.style.setProperty('--my', `${y}px`);
-  }
-  window.addEventListener('mousemove', (e) => moveSpotlight(e.clientX, e.clientY));
-  window.addEventListener('touchmove', (e) => {
-    const t = e.touches[0];
-    if (t) moveSpotlight(t.clientX, t.clientY);
-  }, { passive: true });
+  window.initCursorSpotlight(document.getElementById('welcome-spotlight'));
 
   // ---------- Socket ----------
   // Indicador sempre visível (sem precisar abrir o DevTools) de que o

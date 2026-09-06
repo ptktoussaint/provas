@@ -34,6 +34,11 @@ const examAttemptSchema = new mongoose.Schema({
   // perca essa informação; nunca depende de populate('roomId') continuar
   // resolvendo um documento que talvez não exista mais.
   roomLabel: { type: String, default: null },
+  // Nomes (rótulos dos links) de todo fiscal que se conectou durante esta
+  // tentativa — preenchido ao iniciar a prova (para quem já estava
+  // presente) e a cada nova conexão de fiscal depois disso. Sem duplicatas
+  // (reconectar não adiciona o mesmo nome de novo).
+  proctorNames: { type: [String], default: [] },
 
   status: {
     type: String,

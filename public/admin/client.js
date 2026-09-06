@@ -364,8 +364,11 @@
     document.getElementById('settings-intro-video-status').textContent = data.settings.introVideoUrl
       ? '✓ Vídeo padrão enviado.'
       : 'Nenhum vídeo padrão enviado.';
+    document.getElementById('settings-intro-video-url').value = data.settings.introVideoUrl || '';
+    document.getElementById('settings-logo-url').value = data.settings.logoUrl || '';
 
     const theme = data.settings.theme || {};
+    document.getElementById('settings-background-url').value = theme.backgroundImageUrl || '';
     document.getElementById('theme-primary-color').value = theme.primaryColor || '#dc2626';
     document.getElementById('theme-primary-color-dark').value = theme.primaryColorDark || '#991b1b';
     document.getElementById('theme-primary-color-light').value = theme.primaryColorLight || '#f87171';
@@ -399,6 +402,15 @@
 
   document.getElementById('remove-settings-intro-video-btn').addEventListener('click', async () => {
     await api('/settings/intro-video', { method: 'DELETE' });
+    loadSettings();
+  });
+
+  document.getElementById('settings-intro-video-url-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('settings-intro-video-url');
+    const data = await api('/settings', { method: 'PUT', body: JSON.stringify({ introVideoUrl: input.value.trim() }) });
+    if (!data.success) { alert(data.message || 'Erro ao salvar link.'); return; }
+    input.value = '';
     loadSettings();
   });
 
@@ -436,6 +448,15 @@
     if (data.success) applyThemePreview(data.settings.theme);
   });
 
+  document.getElementById('settings-background-url-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('settings-background-url');
+    const data = await api('/settings', { method: 'PUT', body: JSON.stringify({ theme: { backgroundImageUrl: input.value.trim() } }) });
+    if (!data.success) { alert(data.message || 'Erro ao salvar link.'); return; }
+    input.value = '';
+    applyThemePreview(data.settings.theme);
+  });
+
   document.getElementById('settings-logo-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const file = document.getElementById('settings-logo-file').files[0];
@@ -443,6 +464,14 @@
     const formData = new FormData();
     formData.append('logo', file);
     await api('/settings/logo', { method: 'POST', body: formData });
+  });
+
+  document.getElementById('settings-logo-url-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('settings-logo-url');
+    const data = await api('/settings', { method: 'PUT', body: JSON.stringify({ logoUrl: input.value.trim() }) });
+    if (!data.success) { alert(data.message || 'Erro ao salvar link.'); return; }
+    input.value = '';
   });
 
   // ---------------- Provas ----------------
@@ -489,6 +518,7 @@
           <span class="badge ${exam.introVideoUrl ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${exam.introVideoUrl ? 'Vídeo de boas-vindas enviado' : 'Sem vídeo próprio (usa o padrão)'}</span>
           <input type="file" accept="video/mp4,video/webm,video/ogg" data-exam-video-file="${exam._id}" style="max-width:220px" />
           <button class="small-btn secondary-btn" data-exam-video-upload="${exam._id}">Enviar vídeo</button>
+          <button class="small-btn secondary-btn" data-exam-video-url="${exam._id}">Colar link</button>
           ${exam.introVideoUrl ? `<button class="small-btn secondary-btn" data-exam-video-remove="${exam._id}">Remover vídeo</button>` : ''}
         </div>
       </div>
@@ -511,6 +541,14 @@
     }));
     el.querySelectorAll('[data-exam-video-remove]').forEach((btn) => btn.addEventListener('click', async () => {
       await api(`/exams/${btn.dataset.examVideoRemove}/intro-video`, { method: 'DELETE' });
+      loadExams();
+    }));
+    el.querySelectorAll('[data-exam-video-url]').forEach((btn) => btn.addEventListener('click', async () => {
+      const examId = btn.dataset.examVideoUrl;
+      const url = prompt('Cole o link direto do vídeo (http/https) — fica salvo mesmo depois de um novo deploy:');
+      if (url === null) return;
+      const data = await api(`/exams/${examId}`, { method: 'PUT', body: JSON.stringify({ introVideoUrl: url.trim() }) });
+      if (!data.success) { alert(data.message || 'Erro ao salvar link.'); return; }
       loadExams();
     }));
     el.querySelectorAll('[data-view-questions]').forEach((btn) => btn.addEventListener('click', () => {
@@ -768,23 +806,50 @@
     sel.onchange = () => loadResults();
   }
 
+  let resultsCache = [];
+
   async function loadResults() {
     const examId = document.getElementById('results-exam-filter').value;
     const qs = examId ? `?examId=${examId}` : '';
     const data = await api(`/results${qs}`);
     if (!data.success) return;
+    resultsCache = data.attempts;
+    renderResultsTable();
+  }
 
+  document.getElementById('results-sort').addEventListener('change', renderResultsTable);
+  document.getElementById('results-proctor-filter').addEventListener('input', renderResultsTable);
+
+  const RESULTS_SORTERS = {
+    'date-desc': (a, b) => new Date(b.startedAt) - new Date(a.startedAt),
+    'date-asc': (a, b) => new Date(a.startedAt) - new Date(b.startedAt),
+    'score-desc': (a, b) => (b.score || 0) - (a.score || 0),
+    'score-asc': (a, b) => (a.score || 0) - (b.score || 0),
+    'student-asc': (a, b) => (a.roomId ? a.roomId.studentName : a.studentName || '').localeCompare(b.roomId ? b.roomId.studentName : b.studentName || ''),
+  };
+
+  function renderResultsTable() {
     const tbody = document.getElementById('results-tbody');
-    if (data.attempts.length === 0) { tbody.innerHTML = '<tr><td colspan="9" class="list-empty">Nenhum resultado ainda.</td></tr>'; return; }
+    const sortKey = document.getElementById('results-sort').value;
+    const proctorFilter = document.getElementById('results-proctor-filter').value.trim().toLowerCase();
+
+    let rows = resultsCache;
+    if (proctorFilter) {
+      rows = rows.filter((a) => (a.proctorNames || []).some((name) => name.toLowerCase().includes(proctorFilter)));
+    }
+    rows = rows.slice().sort(RESULTS_SORTERS[sortKey] || RESULTS_SORTERS['date-desc']);
+
+    if (rows.length === 0) { tbody.innerHTML = `<tr><td colspan="10" class="list-empty">${resultsCache.length === 0 ? 'Nenhum resultado ainda.' : 'Nenhum resultado bate com esse filtro.'}</td></tr>`; return; }
 
     // Sala + horário de início aparecem sempre, mesmo com nomes repetidos
     // entre tentativas — cada linha é uma tentativa de uma sala específica,
     // nunca se sobrescrevem entre si.
-    tbody.innerHTML = data.attempts.map((a) => `
+    tbody.innerHTML = rows.map((a) => `
       <tr>
         <td>${escapeHtml(a.roomId ? a.roomId.studentName : a.studentName)}${a.roomId ? '' : ' <span class="hint">(sala excluída)</span>'}</td>
         <td>${escapeHtml((a.roomId ? a.roomId.roomLabel : a.roomLabel) || '—')}</td>
         <td>${escapeHtml(a.examId ? a.examId.name : '')}</td>
+        <td>${escapeHtml((a.proctorNames || []).join(', ') || '—')}</td>
         <td>${a.status === 'in_progress' ? '—' : a.score}</td>
         <td>${a.status === 'in_progress' ? '—' : a.correctCount}</td>
         <td>${a.status === 'in_progress' ? '—' : a.wrongCount}</td>

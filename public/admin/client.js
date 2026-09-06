@@ -364,6 +364,31 @@
     root.setProperty('--bg-image', theme.backgroundImageUrl ? `url('${theme.backgroundImageUrl}')` : 'none');
   }
 
+  // Pré-visualização honesta: um link colado errado (ex.: a página de um
+  // álbum do Imgur em vez do arquivo direto) é aceito pelo servidor sem
+  // erro — só falha em silêncio na hora de exibir. Carregar o link aqui
+  // mesmo, no painel, mostra na hora se funciona de verdade, sem precisar
+  // abrir a tela do aluno em outra aba pra descobrir.
+  function previewImageUrl(url, imgId, statusId) {
+    const img = document.getElementById(imgId);
+    const statusEl = document.getElementById(statusId);
+    if (!url) { img.style.display = 'none'; img.removeAttribute('src'); if (statusEl) statusEl.textContent = ''; return; }
+    if (statusEl) statusEl.textContent = 'Carregando pré-visualização...';
+    img.onload = () => { img.style.display = 'block'; if (statusEl) statusEl.textContent = '✓ Link carregou certinho.'; };
+    img.onerror = () => { img.style.display = 'none'; if (statusEl) statusEl.textContent = '⚠ Não carregou como imagem — confira se é o link DIRETO do arquivo, não uma página de visualização.'; };
+    img.src = url;
+  }
+
+  function previewVideoUrl(url, videoId, statusId) {
+    const video = document.getElementById(videoId);
+    const statusEl = document.getElementById(statusId);
+    if (!url) { video.style.display = 'none'; video.removeAttribute('src'); if (statusEl) statusEl.textContent = ''; return; }
+    if (statusEl) statusEl.textContent = 'Carregando pré-visualização...';
+    video.onloadeddata = () => { video.style.display = 'block'; if (statusEl) statusEl.textContent = '✓ Link carregou certinho.'; };
+    video.onerror = () => { video.style.display = 'none'; if (statusEl) statusEl.textContent = '⚠ Não carregou como vídeo — confira se é o link DIRETO do arquivo, não uma página de visualização.'; };
+    video.src = url;
+  }
+
   async function loadSettings() {
     const data = await api('/settings');
     if (!data.success) return;
@@ -373,9 +398,12 @@
       : 'Nenhum vídeo padrão enviado.';
     document.getElementById('settings-intro-video-url').value = data.settings.introVideoUrl || '';
     document.getElementById('settings-logo-url').value = data.settings.logoUrl || '';
+    previewImageUrl(data.settings.logoUrl, 'settings-logo-preview', 'settings-logo-preview-status');
+    previewVideoUrl(data.settings.introVideoUrl, 'settings-video-preview', 'settings-video-preview-status');
 
     const theme = data.settings.theme || {};
     document.getElementById('settings-background-url').value = theme.backgroundImageUrl || '';
+    previewImageUrl(theme.backgroundImageUrl, 'settings-background-preview', 'settings-background-preview-status');
     document.getElementById('theme-primary-color').value = theme.primaryColor || '#dc2626';
     document.getElementById('theme-primary-color-dark').value = theme.primaryColorDark || '#991b1b';
     document.getElementById('theme-primary-color-light').value = theme.primaryColorLight || '#f87171';

@@ -93,9 +93,11 @@
             <div class="field-group" style="flex:2;min-width:260px">
               <label>...ou cole o link direto do vídeo (fica salvo mesmo depois de um novo deploy)</label>
               <input id="settings-intro-video-url" placeholder="https://..." />
+              <p class="hint" id="settings-video-preview-status" style="margin:4px 0 0"></p>
             </div>
             <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Salvar link</button>
           </form>
+          <video id="settings-video-preview" controls style="max-width:280px;max-height:160px;border-radius:8px;margin-top:6px;display:none"></video>
         </div>
 
         <div class="panel-section">
@@ -141,9 +143,11 @@
             <div class="field-group" style="flex:2;min-width:220px">
               <label>...ou cole o link direto da imagem (fica salvo mesmo depois de um novo deploy)</label>
               <input id="settings-background-url" placeholder="https://..." />
+              <p class="hint" id="settings-background-preview-status" style="margin:4px 0 0"></p>
             </div>
             <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Salvar link</button>
           </form>
+          <img id="settings-background-preview" alt="Pré-visualização da imagem de fundo" style="max-width:220px;max-height:120px;border-radius:8px;margin-top:6px;display:none" />
 
           <form id="settings-logo-form" class="inline-form" style="margin-top:14px">
             <div class="field-group" style="flex:2;min-width:220px">
@@ -156,9 +160,11 @@
             <div class="field-group" style="flex:2;min-width:220px">
               <label>...ou cole o link direto da logo (fica salvo mesmo depois de um novo deploy)</label>
               <input id="settings-logo-url" placeholder="https://..." />
+              <p class="hint" id="settings-logo-preview-status" style="margin:4px 0 0"></p>
             </div>
             <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Salvar link</button>
           </form>
+          <img id="settings-logo-preview" alt="Pré-visualização da logo" style="max-width:220px;max-height:120px;border-radius:8px;margin-top:6px;display:none" />
         </div>
 
         <div class="panel-section">

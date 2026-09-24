@@ -26,19 +26,51 @@ const promotionSchema = new mongoose.Schema({
   draftId: { type: mongoose.Schema.Types.ObjectId, ref: 'PromotionDraft', required: true },
   attemptId: { type: mongoose.Schema.Types.ObjectId, ref: 'ExamAttempt', required: true },
   scoreAtPromotion: { type: Number, default: null },
+  // Revisão do resultado na confirmação: se mudar antes de começar, a
+  // pessoa vai para revisão em vez de ser promovida com nota diferente.
+  revisionAtConfirm: { type: Number, default: null },
   maxScore: { type: Number, default: null },
   operatorId: { type: String, required: true },
   nomeRP: { type: String, required: true },
   idRP: { type: String, required: true },
   nickname: { type: String, required: true },
   steps: { type: [stepSchema], default: [] },
-  status: { type: String, enum: ['pending', 'in_progress', 'completed', 'partial', 'failed'], default: 'pending' },
+  status: {
+    type: String,
+    // needs_review: estado real no Discord exige decisão humana (ex.: já
+    // tinha os cargos fora da integração, ou a nota mudou antes de começar).
+    // blocked: resultado excluído antes de iniciar — não será executada.
+    enum: ['pending', 'in_progress', 'completed', 'partial', 'failed', 'needs_review', 'blocked'],
+    default: 'pending',
+  },
+  // Etapa que o executor (BotGhost) deve relatar a seguir.
+  phase: { type: String, enum: ['awaiting_precheck', 'awaiting_result', 'done'], default: 'awaiting_precheck' },
+  reviewReason: { type: String, default: null },
+  // Evidências relatadas pelo executor autenticado (BotGhost), lidas do
+  // Discord por ele — não é leitura independente do site.
+  evidence: {
+    pre: {
+      roleIds: { type: [String], default: undefined },
+      nickname: { type: String, default: null },
+      at: { type: Date, default: null },
+    },
+    post: {
+      roleIds: { type: [String], default: undefined },
+      nickname: { type: String, default: null },
+      at: { type: Date, default: null },
+    },
+  },
+  // Conflito registrado (ex.: resultado excluído depois de iniciada a
+  // promoção) — o Mongo e o Discord não mudam juntos atomicamente.
+  conflict: { type: String, default: null },
+  startedAt: { type: Date, default: null },
   // Membro já tinha os cargos de destino antes (atribuídos fora do bot):
   // não entra no anúncio automático.
   preexisting: { type: Boolean, default: false },
-  announceTaskKey: { type: String, default: null },
+  announcementKey: { type: String, default: null },
   announced: { type: Boolean, default: false },
   announcedAt: { type: Date, default: null },
+  announcementMessageId: { type: String, default: null },
   retryCount: { type: Number, default: 0 },
   lastError: { type: String, default: null },
   completedAt: { type: Date, default: null },

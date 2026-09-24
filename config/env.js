@@ -34,13 +34,19 @@ module.exports = {
   seedAdminUsername: process.env.SEED_ADMIN_USERNAME || null,
   seedAdminPassword: process.env.SEED_ADMIN_PASSWORD || null,
   // O Render já define RENDER_EXTERNAL_URL (https://<serviço>.onrender.com)
-  // em todo serviço web — é a URL pública usada nos links que o bot do
-  // Discord entrega. Fora do Render (teste local), cai no localhost.
+  // em todo serviço web — é a URL pública usada nos links que a integração
+  // com o BotGhost entrega. Fora do Render (teste local), cai no localhost.
   publicBaseUrl: (process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || '3000'}`).replace(/\/+$/, ''),
-  discord: {
-    enabled: process.env.DISCORD_ENABLED === 'true',
-    botToken: process.env.DISCORD_BOT_TOKEN || null,
-    clientId: process.env.DISCORD_CLIENT_ID || null,
-    guildId: process.env.DISCORD_GUILD_ID || null,
+  // Integração com o bot existente hospedado no BotGhost. O site NÃO conecta
+  // no Discord (sem Gateway, sem token do bot aqui): o BotGhost chama a API
+  // /api/integrations/botghost com BOTGHOST_SITE_API_KEY, e o site avisa o
+  // BotGhost pelo módulo Webhooks (BOTGHOST_WEBHOOK_URL + _API_KEY).
+  botghost: {
+    enabled: process.env.BOTGHOST_INTEGRATION_ENABLED === 'true',
+    siteApiKey: process.env.BOTGHOST_SITE_API_KEY || null,
+    allowedGuildId: process.env.BOTGHOST_ALLOWED_GUILD_ID || null,
+    notificationsEnabled: process.env.BOTGHOST_NOTIFICATIONS_ENABLED === 'true',
+    webhookUrl: process.env.BOTGHOST_WEBHOOK_URL || null,
+    webhookApiKey: process.env.BOTGHOST_WEBHOOK_API_KEY || null,
   },
 };

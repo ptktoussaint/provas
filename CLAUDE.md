@@ -15,11 +15,10 @@ Existiu um segundo repositório (`ptktoussaint/stage-fx-designer`) usado no iní
 Node.js + Express 4 + Socket.io + MongoDB (Mongoose). Frontend em HTML/CSS/JS puro, servido como estático pelo próprio Express (sem build step, sem framework). Deploy no Render (free tier), banco no MongoDB Atlas.
 
 - `npm test` — roda `test/*.test.js` via `node --test` (unitário, sem precisar de banco).
-- `npm run test:integration` — `test-integration/*.test.js` com MongoDB temporário em memória (`mongodb-memory-server`, baixa ~80 MB na 1ª vez) e um Discord FALSO em memória. Nunca chama a API real do Discord.
-- `npm run discord` — registra/atualiza o `/provatcel` só no servidor `DISCORD_GUILD_ID` (POST por comando, nunca PUT em massa). O mesmo registro existe como botão na aba Discord do admin (o usuário não tem terminal).
+- `npm run test:integration` — `test-integration/*.test.js` com MongoDB temporário em memória (`mongodb-memory-server`, baixa ~80 MB na 1ª vez), a API do BotGhost num Express de teste e um webhook FALSO. Nunca chama BotGhost nem Discord reais.
 - `npm start` — sobe o servidor (precisa de `MONGODB_URI` e demais env vars, ver `.env.example`).
 - Node exigido: `22.x` (`engines` no package.json — o Render segue isso).
-- Não há processo de build — editar os arquivos em `public/` e `routes/`/`lib`/`models`/`sockets`/`discord` diretamente.
+- Não há processo de build — editar os arquivos em `public/` e `routes/`/`lib`/`models`/`sockets`/`botghost` diretamente.
 
 ## Papéis e arquitetura essencial
 
@@ -34,18 +33,19 @@ Três papéis: **Admin** (`/admin`), **Aluno** (`/aluno/:token`), **Fiscal** (`/
 - Cada `ExamAttempt` é presa ao `_id` da `Room`, nunca ao nome digitado — duas salas com nomes iguais nunca compartilham/sobrescrevem dados. `studentName`/`roomLabel` são copiados na própria tentativa (sobrevivem mesmo se a sala for excluída depois).
 - Tokens de aluno/fiscal: só o **hash** é persistido (nunca o token puro) — igual senha. Perder o link exige gerar um novo (invalida o antigo, não afeta quem já está conectado).
 
-## Integração com o Discord (bot próprio)
+## Integração com o bot do BotGhost
 
-Guia do usuário: `DISCORD-SETUP.md`. Tudo em `discord/`, carregado só com `DISCORD_ENABLED=true` (senão o discord.js nem é carregado e o site roda igual). Mesmo processo do site, **uma única instância**; nada ali depende de Express/Socket.io (dá para virar worker separado chamando `startDiscord()`).
+O bot do Discord é o do **BotGhost** (hospedado lá, com muitos comandos antigos que NÃO são nossos). O site **não conecta no Discord**: sem Gateway, sem discord.js, sem token do bot, sem registrar comandos. Guias do usuário: `BOTGHOST-API.md` (referência da API), `BOTGHOST-MONTAGEM.md` (blocos no painel do BotGhost), `RENDER-GRATUITO.md`, `CHECKLIST-BOTGHOST.md`, `MENSAGENS-DO-BOT.md`. Tudo em `botghost/`.
 
-- **Gateway, intent `Guilds` apenas**; membros consultados por ID via REST. Sem Message Content/Presence/lista de membros. Sem Interactions Endpoint URL.
-- **Autorização em TODA interação** (`discord/router.js` → `discord/authz.js`): servidor = `DISCORD_GUILD_ID`, canal = canal do painel, cargo atual do membro na lista da ação (gerar/consultar/promover). Config ausente bloqueia. DM negada. Tentativas negadas vão para `SecurityLog` (`discord_unauthorized`). Cargos de destino da promoção NÃO autorizam nada.
-- **Sem estado em memória**: customId carrega o estado (resultados) ou aponta para documento no Mongo (`DiscordRequest`, `PromotionDraft`) — botões antigos funcionam após reinício. Formulário (modal) sempre como PRIMEIRA resposta; o resto faz `defer` antes de trabalho demorado. Respostas efêmeras e `allowedMentions` vazio.
-- **Gerar Prova** usa `lib/rooms.js` (o MESMO serviço do painel admin). Idempotente (transição atômica `pending→creating` + índice único `Room.discordRequestId`). Sala aberta existente → tratamento explícito; links só são reexibidos via "Regenerar" (que revoga o link do aluno e o link de fiscal anterior do operador). `Room.discordUserId` é copiado para `ExamAttempt` em `startOrResumeAttempt` — nenhuma rota do aluno toca nisso. Isso identifica o destinatário, NÃO autentica quem abriu o link.
-- **Outbox** (`models/DiscordTask`, `lib/outbox.js`, `discord/worker.js`, `discord/processors.js`): finalização da prova grava a nota e só então enfileira `result:<attemptId>:r<revision>`; enfileirar nunca lança. Worker processa uma tarefa por vez, com backoff, e retoma após reinício (`releaseStaleLocks`). Reconciliação a cada 60 s recria tarefas faltantes. Processadores sempre releem o estado atual; revisão antiga é "superseded" (nunca publica nota velha nem ressuscita excluído). Envio ambíguo: `nonce`+`enforceNonce` e busca da mensagem já enviada antes de reenviar.
-- **Resultados**: `ExamAttempt.revision` sobe a cada mudança. Nota ajustada (`adjustedScore`) separada da calculada (`score`); efetiva = ajustada ?? calculada; máximo congelado (`maxScore`, ou snapshot × pontos para registros antigos). Exclusão é LÓGICA (`deletedAt` + motivo + `auditTrail`); some das consultas e promoções, fica para auditoria. Tudo em `lib/results.js`.
-- **Promoção**: rascunho por operador/servidor com prazo; um usuário por lote; revisão (`discord/preflight.js`, função pura) checa hierarquia/permissões/canal/membro/resultado ANTES de qualquer mudança; confirmação é transição atômica `review→executing` e revalida tudo (hash da revisão). `Promotion.lockKey` único impede promoção duplicada/concorrente; só é removido por "Liberar nova promoção" (admin) ou falha total. Cada etapa (cargo/apelido) tem estado próprio; retomada refaz só o pendente, reconciliando com o estado real do membro. Anúncio é tarefa separada, só com os concluídos (e sem quem já tinha os cargos).
-- Encerrar sala no meio da prova (admin) agora passa por `finalizeAttempt(..., 'admin_closed')` — corrige no servidor em vez de deixar nota 0.
+- **BotGhost → site**: API máquina-a-máquina `/api/integrations/botghost/*` (`botghost/routes.js`), montada em `server.js` ANTES do `express.json` global, da sessão e do CSRF de `/api` — parser próprio (32 KB), rate limit antes (só falhas) e depois da chave, `Authorization: Bearer BOTGHOST_SITE_API_KEY` com comparação em tempo constante (`botghost/auth.js`). Sem chave ⇒ 503. **Nunca** abrir rotas `/api/admin` para a integração nem remover CSRF/abrir CORS.
+- **Operador**: `guildId`/`actorDiscordId`/`channelId` vêm das variáveis da interação no BotGhost; o site confere servidor (`BOTGHOST_ALLOWED_GUILD_ID`), canal do painel (se configurado) e a allowlist de IDs por ação (`generate`/`results`/`promote`, aba Integração). IDs do Discord só como string (número no JSON é recusado).
+- **Respostas** sempre `{ ok, code, message, data }` com `data.displayText`; mensagens prontas vêm de `botghost/templates/*` (modelos editáveis na aba "Mensagens do Bot", versões em `MessageTemplate`): `data.native.*` (campos soltos), `data.discordBodyJson` (corpo para a API do Discord, `{}` escapados), `allowed_mentions` sempre explícito, edição/teste nunca pinga. Variáveis `[[...]]` substituídas uma vez; links de prova só no modelo privado `room_created`; URLs de imagem só https público, sem o servidor baixar nada.
+- **Idempotência** (`botghost/idempotency.js`, `IntegrationRequest`, TTL 7 dias): chave = `{interaction_id}`; mesmo conteúdo ⇒ mesma resposta, conteúdo diferente ⇒ conflito. A resposta guardada NUNCA tem links (repetição de `/rooms` diz que a sala existe e oferece regenerar, que revoga os links anteriores).
+- **Salas** (`botghost/roomsService.js`) usam `lib/rooms.js` (o mesmo serviço do admin); fiscal inicial = operador. `Room.discordUserId` identifica o destinatário, não autentica quem abre o link.
+- **Avisos site → BotGhost** (`botghost/notifications.js`, `dispatcher.js`, `webhookClient.js`, `IntegrationNotification`): nota salva primeiro, depois o aviso (um por tentativa, versionado por `ExamAttempt.revision`). O despachante roda no próprio processo, só com o site acordado, e dispara o **Webhook oficial** do BotGhost (`BOTGHOST_WEBHOOK_URL` + API Key do módulo, só o ID do aviso). O evento do BotGhost faz `claim` (reserva atômica 2 min, recebe o conteúdo ATUAL) → publica/edita → `ack` com o ID real. 200 do webhook ≠ entrega. Reserva de ENVIO vencida ⇒ `ambiguous` (nunca reenvia sozinho; admin decide); reserva de EDIÇÃO vencida ⇒ refaz. Disparado e nunca reservado ⇒ volta à fila com backoff. Reconciliação a cada 5 min recria aviso faltante.
+- **Promoção** (`botghost/promotionsService.js`): rascunho por operador/servidor com prazo (dono conferido em todo pedido), seleção dinâmica (25 slots `optN*`) ou por usuário (valida todos), um usuário por lote com resultado explícito, revisão com hash, confirmação atômica e revalidada, `Promotion.lockKey` único. Lote = rascunho confirmado; o BotGhost reserva (lease 10 min), relata `precheck`/`result` com evidência (lista de cargos lida do membro, ou modo `status` com os HTTP status de cada pedido) e o site marca cada etapa. Nota mudada antes de começar ⇒ `needs_review`; resultado excluído ⇒ `blocked`; excluído depois de começar ⇒ `conflict`. Anúncio só dos concluídos, em partes de 40, sem repetir.
+- **Resultados**: `ExamAttempt.revision` sobe a cada mudança. Nota ajustada (`adjustedScore`) separada da calculada (`score`); efetiva = ajustada ?? calculada; máximo congelado. Exclusão é LÓGICA (`deletedAt` + motivo + `auditTrail`). Tudo em `lib/results.js`.
+- Encerrar sala no meio da prova (admin) passa por `finalizeAttempt(..., 'admin_closed')` — corrige no servidor em vez de deixar nota 0.
 
 ## Bug crítico já resolvido (não reintroduzir)
 
@@ -54,7 +54,7 @@ O bug mais difícil deste projeto: sessão do Admin colidindo com a do Aluno/Fis
 ## Convenções deste projeto
 
 - Comentários no código só quando explicam um "porquê" não óbvio (histórico de bug, decisão contra-intuitiva) — o padrão já usado é `// <explicação em português>`, mantenha o idioma consistente com o resto do arquivo.
-- Sempre rodar `npm test` antes de dar como concluído (e `npm run test:integration` se mexer em resultados, finalização, salas ou `discord/`).
+- Sempre rodar `npm test` antes de dar como concluído (e `npm run test:integration` se mexer em resultados, finalização, salas ou `botghost/`).
 - O usuário não sabe ler código — respostas para ele devem ser em português, focadas no efeito prático ("o que muda pra você"), não em detalhes de implementação, a menos que peça.
 - Nunca commitar sem o usuário pedir explicitamente (mas commitar/pushar imediatamente quando ele pedir — ele não tem terminal próprio, dependeu disso o projeto inteiro).
 
@@ -62,8 +62,9 @@ O bug mais difícil deste projeto: sessão do Admin colidindo com a do Aluno/Fis
 
 - **Uploads (`public/uploads/`) ficam no disco efêmero do Render** — somem a cada redeploy. Sem solução aplicada (decisão consciente do usuário); se precisar resolver, é um disco persistente pago no Render.
 - **TURN no plano gratuito da Metered (Open Relay)** é compartilhado publicamente, sem SLA — recomendado migrar para plano pago antes de qualquer prova valendo. Não confirmado se já foi feito.
-- **Bot do Discord no Render free tier dorme junto com o site** (~15 min sem acesso HTTP): cliques no Discord falham até o site acordar. Nada se perde (outbox), mas para o bot ficar sempre online o serviço precisa de plano pago.
-- **`npm audit`**: 3 alertas moderados de `qs` via Express 4 — já existiam antes da integração com o Discord (não vieram dela).
+- **Render free dorme** (~15 min sem acesso): os botões do BotGhost mostram "Site iniciando…" até alguém abrir o site. Avisos só saem com o site acordado (ficam na fila do Mongo). Decisão do usuário: continuar no gratuito, sem ping/worker.
+- **Pendências de validação no BotGhost real** (lista no fim de `BOTGHOST-MONTAGEM.md`): Webhooks no plano do usuário, Raw JSON com uma variável, formato da lista de cargos do membro, respostas privadas após formulário. Nada foi testado num BotGhost real — só com um BotGhost simulado.
+- **`npm audit`**: 3 alertas moderados de `qs` via Express 4 — já existiam antes da integração (não vieram dela).
 
 ## Mais detalhes
 

@@ -114,7 +114,7 @@ router.get('/me', requireAdmin, (req, res) => {
 
 router.use(requireAdmin, adminApiLimiter);
 
-router.use('/discord', require('./adminDiscord'));
+router.use('/integration', require('./adminIntegration'));
 
 // ===================== Configurações da plataforma =====================
 
@@ -616,7 +616,7 @@ router.get('/ice-servers', (req, res) => {
 router.get('/results', async (req, res) => {
   const { examId, status, includeDeleted } = req.query;
   const attempts = await results.listForAdmin({ examId, status, includeDeleted: includeDeleted === '1' });
-  const promotions = await results.promotionMap(env.discord.guildId, attempts.map((a) => a.discordUserId).filter(Boolean));
+  const promotions = await results.promotionMap(env.botghost.allowedGuildId, attempts.map((a) => a.discordUserId).filter(Boolean));
   for (const a of attempts) {
     const promo = a.discordUserId ? promotions.get(a.discordUserId) : null;
     a.promotion = promo ? { status: promo.status, active: Boolean(promo.lockKey), completedAt: promo.completedAt, attemptId: promo.attemptId } : null;
@@ -641,7 +641,7 @@ router.put('/results/:attemptId/score', async (req, res) => {
 router.post('/results/:attemptId/discord-link', async (req, res) => {
   const { attemptId } = req.params;
   const { discordUserId, reason } = req.body || {};
-  const out = await results.linkDiscordUser({ attemptId, discordUserId, guildId: env.discord.guildId, reason, actor: adminActor(req) });
+  const out = await results.linkDiscordUser({ attemptId, discordUserId, guildId: env.botghost.allowedGuildId, reason, actor: adminActor(req) });
   await logSecurityEvent('result_discord_linked', { meta: { attemptId, before: out.before, discordUserId: out.attempt.discordUserId, by: adminActor(req) }, ip: req.ip });
   res.json({ success: true });
 });

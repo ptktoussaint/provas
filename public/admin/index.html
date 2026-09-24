@@ -57,7 +57,8 @@
         <button class="tab-btn" data-tab="monitor-tab">Central de Monitoramento</button>
         <button class="tab-btn" data-tab="results-tab">Resultados</button>
         <button class="tab-btn" data-tab="security-tab">Segurança &amp; Auditoria</button>
-        <button class="tab-btn" data-tab="discord-tab">Discord</button>
+        <button class="tab-btn" data-tab="integration-tab">Integração BotGhost</button>
+        <button class="tab-btn" data-tab="templates-tab">Mensagens do Bot</button>
       </div>
 
       <!-- DASHBOARD -->
@@ -299,78 +300,180 @@
         </div>
       </div>
 
-      <!-- DISCORD -->
-      <div id="discord-tab" class="tab-panel hidden">
+      <!-- INTEGRAÇÃO BOTGHOST -->
+      <div id="integration-tab" class="tab-panel hidden">
         <div class="panel-section">
           <div class="panel-section-header">
-            <h3>Situação do bot</h3>
-            <button class="small-btn secondary-btn" id="discord-refresh-btn" style="margin:0">🔄 Atualizar</button>
+            <h3>Situação da integração</h3>
+            <button class="small-btn secondary-btn" id="ig-refresh-btn" style="margin:0">🔄 Atualizar</button>
           </div>
-          <div id="discord-status" class="panel-grid"></div>
-          <p class="hint" id="discord-status-hint"></p>
+          <p class="hint" style="margin-top:0">O bot continua hospedado no BotGhost. O site não conecta no Discord: ele só responde aos pedidos do BotGhost (com a chave de integração) e avisa o BotGhost pelo webhook. Chaves e segredos ficam SÓ nas variáveis de ambiente do Render — aqui aparece apenas se estão definidos.</p>
+          <div id="ig-status" class="panel-grid"></div>
+          <p class="hint" id="ig-status-hint"></p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <a class="secondary-btn small-btn hidden" id="discord-invite-link" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-block">➕ Convidar o bot para o servidor</a>
-            <button class="small-btn secondary-btn" id="discord-register-btn" style="margin:0">Registrar /provatcel no servidor</button>
+            <button class="small-btn secondary-btn" id="ig-panel-update-btn" style="margin:0">Atualizar painel no Discord</button>
           </div>
-          <p class="hint" id="discord-register-msg"></p>
+          <p class="hint" id="ig-panel-msg"></p>
+          <h4 class="discord-subtitle">Gerar chave nova (BOTGHOST_SITE_API_KEY)</h4>
+          <p class="hint" style="margin-top:0">A chave é criada aqui mesmo, no seu navegador: o site não recebe nem guarda. Copie e cole em DOIS lugares — Render (Environment) e BotGhost (Manage Secrets). Não mande em chat nem tire print.</p>
+          <div class="tpl-inline" style="max-width:640px">
+            <button type="button" class="small-btn secondary-btn" id="ig-keygen-btn" style="margin:0">Gerar chave</button>
+            <input id="ig-keygen-out" readonly placeholder="(a chave aparece aqui)" autocomplete="off" spellcheck="false" />
+            <button type="button" class="small-btn secondary-btn" id="ig-keygen-copy" style="margin:0">Copiar</button>
+          </div>
+          <p class="hint" id="ig-keygen-msg"></p>
         </div>
 
         <div class="panel-section">
           <div class="panel-section-header"><h3>Configuração</h3></div>
-          <p class="hint" style="margin-top:0">Use os IDs numéricos copiados do Discord (Modo desenvolvedor → botão direito → Copiar ID). Para listas, separe por vírgula. O token do bot NÃO fica aqui — só nas variáveis de ambiente do Render.</p>
-          <form id="discord-config-form" class="discord-form">
+          <p class="hint" style="margin-top:0">Use os IDs numéricos copiados do Discord (Modo desenvolvedor → botão direito → Copiar ID). Para listas, separe por vírgula. Estes IDs complementam as condições de cargo que você monta no BotGhost: o site confere se quem clicou está na lista da ação.</p>
+          <form id="ig-config-form" class="discord-form">
+            <h4 class="discord-subtitle">Operadores autorizados (IDs de usuário)</h4>
             <div class="discord-form-grid">
-              <div class="field-group"><label>Canal do painel (/provatcel e botões)</label><input id="dc-panel-channel" placeholder="ID do canal" /></div>
-              <div class="field-group"><label>Canal de resultados (avisos de prova finalizada)</label><input id="dc-results-channel" placeholder="ID do canal" /></div>
-              <div class="field-group"><label>Cargos que podem GERAR PROVA</label><input id="dc-roles-generate" placeholder="IDs de cargos" /></div>
-              <div class="field-group"><label>Cargos que podem CONSULTAR NOTAS</label><input id="dc-roles-results" placeholder="IDs de cargos" /></div>
-              <div class="field-group"><label>Cargos que podem PROMOVER</label><input id="dc-roles-promote" placeholder="IDs de cargos" /></div>
-              <div class="field-group"><label>Prova padrão do "Gerar Prova"</label><select id="dc-default-exam"></select></div>
+              <div class="field-group"><label>Podem GERAR PROVA</label><input id="ig-ops-generate" placeholder="IDs de usuários" /></div>
+              <div class="field-group"><label>Podem CONFERIR RESULTADOS</label><input id="ig-ops-results" placeholder="IDs de usuários" /></div>
+              <div class="field-group"><label>Podem PROMOVER</label><input id="ig-ops-promote" placeholder="IDs de usuários" /></div>
+              <div class="field-group"><label>Prova padrão do "Gerar Prova"</label><select id="ig-default-exam"></select></div>
+            </div>
+            <h4 class="discord-subtitle">Canais</h4>
+            <div class="discord-form-grid">
+              <div class="field-group"><label>Canal do painel (opcional: se preenchido, só aceita pedidos desse canal)</label><input id="ig-ch-panel" placeholder="ID do canal" /></div>
+              <div class="field-group"><label>Canal de resultados (avisos de prova finalizada)</label><input id="ig-ch-results" placeholder="ID do canal" /></div>
+              <div class="field-group"><label>Canal de TESTE das mensagens (sem pessoas reais)</label><input id="ig-ch-test" placeholder="ID do canal" /></div>
             </div>
             <h4 class="discord-subtitle">Promoção</h4>
-            <p class="hint" style="margin-top:0">Os cargos de destino da promoção NÃO dão permissão para operar o bot — isso é só pelos cargos de operador acima.</p>
             <div class="discord-form-grid">
-              <div class="field-group"><label>Cargos a adicionar</label><input id="dc-add-roles" /></div>
-              <div class="field-group"><label>Cargos a remover</label><input id="dc-remove-roles" /></div>
-              <div class="field-group"><label>Canal de anúncio de promoções</label><input id="dc-announce-channel" /></div>
-              <div class="field-group"><label>Cargo mencionado no anúncio</label><input id="dc-announce-role" /></div>
-              <div class="field-group"><label>Modelo do apelido (máx. 32 caracteres no total)</label><input id="dc-nickname-template" /></div>
+              <div class="field-group"><label>Cargos a adicionar</label><input id="ig-add-roles" /></div>
+              <div class="field-group"><label>Cargos a remover</label><input id="ig-remove-roles" /></div>
+              <div class="field-group"><label>Canal de anúncio de promoções</label><input id="ig-announce-channel" /></div>
+              <div class="field-group"><label>Cargo mencionado no anúncio</label><input id="ig-announce-role" /></div>
+              <div class="field-group"><label>Modelo do apelido (máx. 32 caracteres no total)</label><input id="ig-nickname-template" /></div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button type="submit" class="small-btn">Salvar configuração</button>
-              <button type="button" class="small-btn secondary-btn" id="discord-verify-btn">Verificar no Discord</button>
             </div>
-            <p class="error-msg" id="discord-config-msg"></p>
+            <p class="error-msg" id="ig-config-msg"></p>
           </form>
-          <div id="discord-verify-result"></div>
         </div>
 
         <div class="panel-section">
           <div class="panel-section-header">
-            <h3>Fila de envios ao Discord</h3>
-            <select id="discord-tasks-filter" style="max-width:200px">
-              <option value="">Todas</option>
+            <h3>Fila de avisos (webhook)</h3>
+            <select id="ig-notif-filter" style="max-width:220px">
+              <option value="">Todos</option>
               <option value="failed">Com falha</option>
+              <option value="ambiguous">Ambíguos (conferir canal)</option>
               <option value="pending">Pendentes</option>
-              <option value="done">Concluídas</option>
+              <option value="dispatched">Webhook disparado</option>
+              <option value="claimed">Reservados pelo BotGhost</option>
+              <option value="delivered">Entregues</option>
+              <option value="cancelled">Cancelados</option>
             </select>
           </div>
-          <p class="hint" style="margin-top:0">Avisos de resultado, execuções de promoção e anúncios. Se o Discord cair, tudo espera aqui e é retomado sozinho. "Reprocessar" só aparece para tarefas com falha.</p>
+          <p class="hint" style="margin-top:0">Resposta 200 do webhook NÃO é entrega: só conta como entregue quando o BotGhost confirma com o ID real da mensagem. "Ambíguo" = a mensagem pode ter saído; confira o canal antes de decidir. Nada é reenviado sozinho nesses casos.</p>
           <div class="table-scroll">
             <table class="data-table">
-              <thead><tr><th>Quando</th><th>Tipo</th><th>Situação</th><th>Tentativas</th><th>Detalhe / último erro</th><th></th></tr></thead>
-              <tbody id="discord-tasks-tbody"></tbody>
+              <thead><tr><th>Atualizado</th><th>Tipo</th><th>Situação</th><th>Tentativas</th><th>Detalhe / último erro</th><th></th></tr></thead>
+              <tbody id="ig-notif-tbody"></tbody>
             </table>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+            <button class="small-btn secondary-btn" id="ig-notif-prev" style="margin:0">◀ Anterior</button>
+            <span class="hint" id="ig-notif-page"></span>
+            <button class="small-btn secondary-btn" id="ig-notif-next" style="margin:0">Próxima ▶</button>
           </div>
         </div>
 
         <div class="panel-section">
           <h3>Promoções feitas pelo bot</h3>
+          <p class="hint" style="margin-top:0">A situação é a relatada pelo BotGhost depois de ler o membro no Discord. "Retomar" devolve só as etapas que falharam; o operador continua pelo botão no Discord.</p>
           <div class="table-scroll">
             <table class="data-table">
               <thead><tr><th>Quando</th><th>Usuário (ID Discord)</th><th>Apelido</th><th>Situação</th><th>Etapas</th><th></th></tr></thead>
-              <tbody id="discord-promotions-tbody"></tbody>
+              <tbody id="ig-promotions-tbody"></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- MENSAGENS DO BOT -->
+      <div id="templates-tab" class="tab-panel hidden">
+        <div class="panel-section">
+          <div class="panel-section-header">
+            <h3>Mensagens do Bot</h3>
+            <select id="tpl-select" style="max-width:320px"></select>
+          </div>
+          <p class="hint" id="tpl-help" style="margin-top:0"></p>
+          <p class="hint" id="tpl-meta"></p>
+          <div class="tpl-layout">
+            <form id="tpl-form" class="tpl-editor" autocomplete="off">
+              <div class="tpl-tools">
+                <div class="field-group"><label>Inserir variável</label>
+                  <div class="tpl-inline"><select id="tpl-var-select"></select><button type="button" class="small-btn secondary-btn" id="tpl-var-insert">Inserir</button></div>
+                  <span class="hint" id="tpl-var-help"></span>
+                </div>
+                <div class="field-group"><label>Inserir menção (não notifica sozinha)</label>
+                  <div class="tpl-inline">
+                    <select id="tpl-mention-type"><option value="user">Usuário &lt;@ID&gt;</option><option value="role">Cargo &lt;@&amp;ID&gt;</option><option value="channel">Canal &lt;#ID&gt;</option></select>
+                    <input id="tpl-mention-id" placeholder="ID numérico" />
+                    <button type="button" class="small-btn secondary-btn" id="tpl-mention-insert">Inserir</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="field-group"><label>Texto (fora do embed) <span class="tpl-count" data-count-for="content"></span></label><textarea id="tpl-content" data-path="content" rows="3"></textarea><span class="tpl-err" data-err-for="content"></span></div>
+
+              <label class="tpl-check"><input type="checkbox" id="tpl-embed-enabled" /> Usar embed</label>
+              <div id="tpl-embed-box">
+                <div class="discord-form-grid">
+                  <div class="field-group"><label>Título <span class="tpl-count" data-count-for="embed.title"></span></label><input id="tpl-title" data-path="embed.title" /><span class="tpl-err" data-err-for="embed.title"></span></div>
+                  <div class="field-group"><label>Link do título (https)</label><input id="tpl-url" data-path="embed.url" /><span class="tpl-err" data-err-for="embed.url"></span></div>
+                  <div class="field-group"><label>Cor</label><div class="tpl-inline"><input type="color" id="tpl-color-picker" /><input id="tpl-color" data-path="embed.color" placeholder="#RRGGBB" style="max-width:110px" /></div><span class="tpl-err" data-err-for="embed.color"></span></div>
+                </div>
+                <div class="field-group"><label>Descrição <span class="tpl-count" data-count-for="embed.description"></span></label><textarea id="tpl-description" data-path="embed.description" rows="5"></textarea><span class="tpl-err" data-err-for="embed.description"></span></div>
+                <div class="discord-form-grid">
+                  <div class="field-group"><label>Autor — nome <span class="tpl-count" data-count-for="embed.authorName"></span></label><input id="tpl-authorName" data-path="embed.authorName" /><span class="tpl-err" data-err-for="embed.authorName"></span></div>
+                  <div class="field-group"><label>Autor — link (https)</label><input id="tpl-authorUrl" data-path="embed.authorUrl" /><span class="tpl-err" data-err-for="embed.authorUrl"></span></div>
+                  <div class="field-group"><label>Autor — ícone (imagem https)</label><input id="tpl-authorIconUrl" data-path="embed.authorIconUrl" data-image="1" /><span class="tpl-img-status" data-img-for="embed.authorIconUrl"></span><span class="tpl-err" data-err-for="embed.authorIconUrl"></span></div>
+                  <div class="field-group"><label>Miniatura (imagem https)</label><input id="tpl-thumbnailUrl" data-path="embed.thumbnailUrl" data-image="1" /><span class="tpl-img-status" data-img-for="embed.thumbnailUrl"></span><span class="tpl-err" data-err-for="embed.thumbnailUrl"></span></div>
+                  <div class="field-group"><label>Imagem grande (https)</label><input id="tpl-imageUrl" data-path="embed.imageUrl" data-image="1" /><span class="tpl-img-status" data-img-for="embed.imageUrl"></span><span class="tpl-err" data-err-for="embed.imageUrl"></span></div>
+                  <div class="field-group"><label>Rodapé — texto <span class="tpl-count" data-count-for="embed.footerText"></span></label><input id="tpl-footerText" data-path="embed.footerText" /><span class="tpl-err" data-err-for="embed.footerText"></span></div>
+                  <div class="field-group"><label>Rodapé — ícone (imagem https)</label><input id="tpl-footerIconUrl" data-path="embed.footerIconUrl" data-image="1" /><span class="tpl-img-status" data-img-for="embed.footerIconUrl"></span><span class="tpl-err" data-err-for="embed.footerIconUrl"></span></div>
+                </div>
+                <label class="tpl-check"><input type="checkbox" id="tpl-timestamp" /> Mostrar data/hora no rodapé</label>
+                <h4 class="discord-subtitle">Campos <span class="tpl-count" id="tpl-fields-count"></span></h4>
+                <span class="tpl-err" data-err-for="embed.fields"></span><span class="tpl-err" data-err-for="embed"></span>
+                <div id="tpl-fields"></div>
+                <button type="button" class="small-btn secondary-btn" id="tpl-field-add">+ Adicionar campo</button>
+              </div>
+
+              <div id="tpl-pings-box">
+                <h4 class="discord-subtitle">Quem é notificado (ping)</h4>
+                <p class="hint" style="margin-top:0">Menção mostra o nome; ping notifica. Só notifica quem estiver marcado aqui E aparecer no TEXTO fora do embed. @everyone/@here nunca. Edições e testes nunca notificam.</p>
+                <div id="tpl-ping-targets"></div>
+                <div class="discord-form-grid">
+                  <div class="field-group"><label>IDs extras de usuários que podem ser notificados</label><input id="tpl-ping-users" /></div>
+                  <div class="field-group"><label>IDs extras de cargos que podem ser notificados</label><input id="tpl-ping-roles" /></div>
+                </div>
+                <span class="tpl-err" data-err-for="pings"></span>
+              </div>
+
+              <div class="tpl-actions">
+                <button type="button" class="small-btn secondary-btn" id="tpl-save">Salvar rascunho</button>
+                <button type="button" class="small-btn" id="tpl-publish">Publicar</button>
+                <button type="button" class="small-btn secondary-btn" id="tpl-restore">Restaurar padrão</button>
+                <button type="button" class="small-btn secondary-btn" id="tpl-test">Enviar teste</button>
+              </div>
+              <p class="error-msg" id="tpl-msg"></p>
+            </form>
+
+            <div class="tpl-preview-col">
+              <h4 class="discord-subtitle" style="margin-top:0">Prévia (dados fictícios)</h4>
+              <div id="tpl-preview" class="dc-preview"></div>
+              <ul id="tpl-errors" class="tpl-error-list"></ul>
+              <h4 class="discord-subtitle">Versões publicadas</h4>
+              <ul id="tpl-versions" class="tpl-versions"></ul>
+            </div>
           </div>
         </div>
       </div>
@@ -389,6 +492,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/admin/monitor.js"></script>
   <script src="/admin/client.js"></script>
-  <script src="/admin/discord.js"></script>
+  <script src="/admin/integration.js"></script>
+  <script src="/admin/templates.js"></script>
 </body>
 </html>

@@ -16,7 +16,8 @@ const selectionSchema = new mongoose.Schema({
 }, { _id: false });
 
 // Rascunho de promoção em lote. Pertence a um operador em um servidor, tem
-// prazo e fica no banco: botões antigos seguem funcionando após reinício.
+// prazo e fica no banco. Depois de confirmado, o mesmo documento é o "job"
+// de execução (jobId = draftId) consumido pelo BotGhost.
 const promotionDraftSchema = new mongoose.Schema({
   guildId: { type: String, required: true },
   operatorId: { type: String, required: true },
@@ -33,6 +34,13 @@ const promotionDraftSchema = new mongoose.Schema({
   notice: { type: String, default: null },
   expiresAt: { type: Date, required: true },
   confirmedAt: { type: Date, default: null },
+  // Reserva exclusiva de execução do lote (promotion-jobs/claim): só um
+  // executor por vez, com prazo.
+  lease: {
+    token: { type: String, default: null },
+    holderDiscordId: { type: String, default: null },
+    until: { type: Date, default: null },
+  },
 }, { timestamps: true });
 
 promotionDraftSchema.index({ guildId: 1, operatorId: 1, status: 1 });

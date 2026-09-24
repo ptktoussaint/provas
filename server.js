@@ -10,7 +10,7 @@ const createSessionMiddleware = require('./middleware/session');
 const { verifySameOrigin } = require('./middleware/csrf');
 const { initSockets } = require('./sockets');
 const { startExpirySweep } = require('./lib/examLifecycle');
-const discord = require('./discord');
+const botghost = require('./botghost');
 
 const adminRoutes = require('./routes/admin');
 const studentRoutes = require('./routes/student');
@@ -59,7 +59,10 @@ async function main() {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:'],
+        // https: só para imagens — a prévia do editor "Mensagens do Bot"
+        // mostra ícones/imagens de embed hospedados fora (carregados pelo
+        // navegador do admin; o servidor nunca baixa essas URLs).
+        imgSrc: ["'self'", 'data:', 'https:'],
         connectSrc: ["'self'", 'wss:', 'ws:'],
         mediaSrc: ["'self'"],
         objectSrc: ["'none'"],
@@ -77,6 +80,11 @@ async function main() {
     res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), display-capture=(self)');
     next();
   });
+
+  // API do BotGhost (máquina-a-máquina): antes do JSON global, da sessão e
+  // do CSRF de /api — tem parser, limites e autenticação próprios, sem
+  // cookie. Não dá acesso a nenhuma rota /api/admin.
+  botghost.mountIntegration(app);
 
   app.use(express.json({ limit: '200kb' }));
   app.use(sessionMiddleware);
@@ -123,16 +131,18 @@ async function main() {
 
   server.listen(env.port, () => {
     console.log(`[server] Provas Live rodando na porta ${env.port}`);
-    // Discord só depois do site no ar, e sem esperar: se o Discord falhar
-    // ou demorar, HTTP/Socket.io/provas continuam funcionando normalmente.
-    discord.startDiscord({ env }).catch((err) => {
-      console.error('[discord] falha ao iniciar a integração (o site segue no ar):', err && err.message);
-    });
+    // Despachante de avisos do BotGhost só depois do site no ar; qualquer
+    // falha nele não afeta HTTP/Socket.io/provas.
+    try {
+      botghost.startIntegration();
+    } catch (err) {
+      console.error('[botghost] falha ao iniciar a integração (o site segue no ar):', err && err.message);
+    }
   });
 
   // Encerramento controlado (o Render manda SIGTERM a cada deploy):
-  // desconecta o bot e para a fila antes de sair, para a tarefa em curso não
-  // ficar pela metade. O que ficar pendente é retomado no próximo início.
+  // para o despachante de avisos antes de sair. O que ficar pendente está no
+  // Mongo e é retomado no próximo início.
   let shuttingDown = false;
   async function shutdown(signal) {
     if (shuttingDown) return;
@@ -140,7 +150,7 @@ async function main() {
     console.log(`[server] ${signal} recebido — encerrando`);
     const forceExit = setTimeout(() => process.exit(0), 10000);
     forceExit.unref();
-    await discord.stopDiscord().catch(() => {});
+    await botghost.stopIntegration().catch(() => {});
     // io.close() também fecha o servidor HTTP por baixo.
     io.close(() => process.exit(0));
   }

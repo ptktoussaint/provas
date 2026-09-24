@@ -10,6 +10,7 @@ const createSessionMiddleware = require('./middleware/session');
 const { verifySameOrigin } = require('./middleware/csrf');
 const { initSockets } = require('./sockets');
 const { startExpirySweep } = require('./lib/examLifecycle');
+const discord = require('./discord');
 
 const adminRoutes = require('./routes/admin');
 const studentRoutes = require('./routes/student');
@@ -122,7 +123,29 @@ async function main() {
 
   server.listen(env.port, () => {
     console.log(`[server] Provas Live rodando na porta ${env.port}`);
+    // Discord só depois do site no ar, e sem esperar: se o Discord falhar
+    // ou demorar, HTTP/Socket.io/provas continuam funcionando normalmente.
+    discord.startDiscord({ env }).catch((err) => {
+      console.error('[discord] falha ao iniciar a integração (o site segue no ar):', err && err.message);
+    });
   });
+
+  // Encerramento controlado (o Render manda SIGTERM a cada deploy):
+  // desconecta o bot e para a fila antes de sair, para a tarefa em curso não
+  // ficar pela metade. O que ficar pendente é retomado no próximo início.
+  let shuttingDown = false;
+  async function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[server] ${signal} recebido — encerrando`);
+    const forceExit = setTimeout(() => process.exit(0), 10000);
+    forceExit.unref();
+    await discord.stopDiscord().catch(() => {});
+    // io.close() também fecha o servidor HTTP por baixo.
+    io.close(() => process.exit(0));
+  }
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((err) => {

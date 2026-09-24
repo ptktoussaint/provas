@@ -866,7 +866,10 @@
 
   async function loadResults() {
     const examId = document.getElementById('results-exam-filter').value;
-    const qs = examId ? `?examId=${examId}` : '';
+    const params = new URLSearchParams();
+    if (examId) params.set('examId', examId);
+    if (document.getElementById('results-include-deleted').checked) params.set('includeDeleted', '1');
+    const qs = params.toString() ? `?${params}` : '';
     const data = await api(`/results${qs}`);
     if (!data.success) return;
     resultsCache = data.attempts;
@@ -875,14 +878,51 @@
 
   document.getElementById('results-sort').addEventListener('change', renderResultsTable);
   document.getElementById('results-proctor-filter').addEventListener('input', renderResultsTable);
+  document.getElementById('results-include-deleted').addEventListener('change', loadResults);
+
+  // Nota efetiva: a ajustada pelo admin, quando existe; senão a calculada.
+  function effScore(a) {
+    return a.effectiveScore != null ? a.effectiveScore : (a.adjustedScore != null ? a.adjustedScore : (a.score || 0));
+  }
 
   const RESULTS_SORTERS = {
     'date-desc': (a, b) => new Date(b.startedAt) - new Date(a.startedAt),
     'date-asc': (a, b) => new Date(a.startedAt) - new Date(b.startedAt),
-    'score-desc': (a, b) => (b.score || 0) - (a.score || 0),
-    'score-asc': (a, b) => (a.score || 0) - (b.score || 0),
+    'score-desc': (a, b) => effScore(b) - effScore(a),
+    'score-asc': (a, b) => effScore(a) - effScore(b),
     'student-asc': (a, b) => (a.roomId ? a.roomId.studentName : a.studentName || '').localeCompare(b.roomId ? b.roomId.studentName : b.studentName || ''),
   };
+
+  function showResultsWarning(message) {
+    document.getElementById('results-warning').textContent = message || '';
+    if (message) alert(message);
+  }
+
+  function askReason(what) {
+    const reason = prompt(`Motivo para ${what} (obrigatório, fica registrado na auditoria):`);
+    if (reason === null) return null;
+    if (reason.trim().length < 3) { alert('O motivo precisa ter pelo menos 3 caracteres.'); return null; }
+    return reason.trim();
+  }
+
+  function discordCell(a) {
+    if (!a.discordUserId) return '<span class="hint">não vinculado</span>';
+    let html = `<code>${escapeHtml(a.discordUserId)}</code>`;
+    if (a.promotion) {
+      const labels = { completed: '✅ promovido', partial: '⚠ promoção parcial', failed: '❌ promoção falhou', pending: '⏳ promovendo', in_progress: '⏳ promovendo' };
+      html += `<br><span class="hint">${labels[a.promotion.status] || escapeHtml(a.promotion.status)}${a.promotion.active ? '' : ' (liberado)'}</span>`;
+    }
+    return html;
+  }
+
+  function scoreCell(a) {
+    if (a.status === 'in_progress') return '—';
+    const max = a.maxScoreComputed != null ? ` / ${a.maxScoreComputed}` : '';
+    if (a.adjustedScore != null) {
+      return `<strong>${a.adjustedScore}</strong>${max}<br><span class="hint">ajustada (calculada: ${a.score})</span>`;
+    }
+    return `${a.score}${max}`;
+  }
 
   function renderResultsTable() {
     const tbody = document.getElementById('results-tbody');
@@ -895,34 +935,67 @@
     }
     rows = rows.slice().sort(RESULTS_SORTERS[sortKey] || RESULTS_SORTERS['date-desc']);
 
-    if (rows.length === 0) { tbody.innerHTML = `<tr><td colspan="10" class="list-empty">${resultsCache.length === 0 ? 'Nenhum resultado ainda.' : 'Nenhum resultado bate com esse filtro.'}</td></tr>`; return; }
+    if (rows.length === 0) { tbody.innerHTML = `<tr><td colspan="11" class="list-empty">${resultsCache.length === 0 ? 'Nenhum resultado ainda.' : 'Nenhum resultado bate com esse filtro.'}</td></tr>`; return; }
 
     // Sala + horário de início aparecem sempre, mesmo com nomes repetidos
     // entre tentativas — cada linha é uma tentativa de uma sala específica,
     // nunca se sobrescrevem entre si.
-    tbody.innerHTML = rows.map((a) => `
-      <tr>
+    tbody.innerHTML = rows.map((a) => {
+      const finished = a.status === 'finished' || a.status === 'finished_timeout';
+      const deleted = Boolean(a.deletedAt);
+      return `
+      <tr class="${deleted ? 'result-deleted' : ''}">
         <td>${escapeHtml(a.roomId ? a.roomId.studentName : a.studentName)}${a.roomId ? '' : ' <span class="hint">(sala excluída)</span>'}</td>
+        <td>${discordCell(a)}</td>
         <td>${escapeHtml((a.roomId ? a.roomId.roomLabel : a.roomLabel) || '—')}</td>
         <td>${escapeHtml(a.examId ? a.examId.name : '')}</td>
         <td>${escapeHtml((a.proctorNames || []).join(', ') || '—')}</td>
-        <td>${a.status === 'in_progress' ? '—' : a.score}</td>
+        <td>${scoreCell(a)}</td>
         <td>${a.status === 'in_progress' ? '—' : a.correctCount}</td>
         <td>${a.status === 'in_progress' ? '—' : a.wrongCount}</td>
         <td>${fmtDate(a.startedAt)}</td>
-        <td><span class="badge ${a.status === 'in_progress' ? 'badge-warn' : 'badge-ok'}"><span class="badge-dot"></span>${a.status}</span></td>
-        <td>
+        <td>${deleted
+          ? `<span class="badge badge-danger"><span class="badge-dot"></span>excluído</span><br><span class="hint">${escapeHtml(a.deleteReason || '')}</span>`
+          : `<span class="badge ${a.status === 'in_progress' ? 'badge-warn' : 'badge-ok'}"><span class="badge-dot"></span>${a.status}</span>`}</td>
+        <td class="result-actions">
           <button class="small-btn secondary-btn" data-detail="${a._id}">Detalhes</button>
-          <button class="small-btn danger-btn" data-delete-result="${a._id}">Apagar nota</button>
+          ${!deleted && finished ? `<button class="small-btn secondary-btn" data-edit-score="${a._id}">Editar nota</button>` : ''}
+          ${!deleted && !a.discordUserId ? `<button class="small-btn secondary-btn" data-link-discord="${a._id}">Vincular Discord</button>` : ''}
+          ${!deleted ? `<button class="small-btn danger-btn" data-delete-result="${a._id}">Excluir nota</button>` : ''}
         </td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
 
     tbody.querySelectorAll('[data-detail]').forEach((btn) => btn.addEventListener('click', () => openDetail(btn.dataset.detail)));
+    tbody.querySelectorAll('[data-edit-score]').forEach((btn) => btn.addEventListener('click', async () => {
+      const a = resultsCache.find((x) => x._id === btn.dataset.editScore);
+      const max = a && a.maxScoreComputed != null ? a.maxScoreComputed : '?';
+      const value = prompt(`Nova nota (de 0 até ${max}). A nota calculada (${a ? a.score : '?'}) e os acertos continuam guardados.\nDeixe em branco para voltar a usar a nota calculada.`, a && a.adjustedScore != null ? String(a.adjustedScore) : '');
+      if (value === null) return;
+      const reason = askReason('alterar a nota');
+      if (!reason) return;
+      const score = value.trim() === '' ? null : Number(value.replace(',', '.'));
+      const data2 = await api(`/results/${btn.dataset.editScore}/score`, { method: 'PUT', body: JSON.stringify({ score, reason }) });
+      if (!data2.success) { alert(data2.message || 'Erro ao alterar a nota.'); return; }
+      showResultsWarning(data2.warning);
+      loadResults();
+    }));
+    tbody.querySelectorAll('[data-link-discord]').forEach((btn) => btn.addEventListener('click', async () => {
+      const discordUserId = prompt('ID do usuário do Discord (17 a 20 dígitos) a quem este resultado pertence.\nNão é feito nenhum palpite por nome — confira o ID antes.');
+      if (discordUserId === null) return;
+      const reason = askReason('vincular este resultado');
+      if (!reason) return;
+      const data2 = await api(`/results/${btn.dataset.linkDiscord}/discord-link`, { method: 'POST', body: JSON.stringify({ discordUserId: discordUserId.trim(), reason }) });
+      if (!data2.success) { alert(data2.message || 'Erro ao vincular.'); return; }
+      loadResults();
+    }));
     tbody.querySelectorAll('[data-delete-result]').forEach((btn) => btn.addEventListener('click', async () => {
-      if (!window.confirm('Apagar esta nota permanentemente? A sala volta a ficar disponível para uma nova tentativa. Essa ação não pode ser desfeita.')) return;
-      const data2 = await api(`/results/${btn.dataset.deleteResult}`, { method: 'DELETE' });
-      if (!data2.success) { alert(data2.message || 'Erro ao apagar.'); return; }
+      if (!window.confirm('Excluir esta nota? Ela some das consultas (site e Discord) e das promoções, mas fica guardada para auditoria. A sala volta a ficar disponível para uma nova tentativa.')) return;
+      const reason = askReason('excluir a nota');
+      if (!reason) return;
+      const data2 = await api(`/results/${btn.dataset.deleteResult}`, { method: 'DELETE', body: JSON.stringify({ reason }) });
+      if (!data2.success) { alert(data2.message || 'Erro ao excluir.'); return; }
+      showResultsWarning(data2.warning);
       loadResults();
     }));
   }
@@ -933,9 +1006,19 @@
     if (!data.success) { alert(data.message); return; }
 
     const a = data.attempt;
+    const auditLabels = { score_adjusted: 'Nota ajustada', score_adjustment_removed: 'Ajuste removido', result_deleted: 'Resultado excluído', discord_linked: 'Vinculado ao Discord' };
+    const audit = (a.auditTrail || []).length ? `
+      <h4 style="margin:16px 0 6px">Histórico de alterações pelo admin</h4>
+      ${(a.auditTrail || []).map((e) => `<p class="hint" style="margin:2px 0">${fmtDate(e.at)} — <strong>${escapeHtml(auditLabels[e.type] || e.type)}</strong> por ${escapeHtml(e.by)} · motivo: ${escapeHtml(e.reason)} · antes: ${escapeHtml(JSON.stringify(e.before))} · depois: ${escapeHtml(JSON.stringify(e.after))}</p>`).join('')}` : '';
+    const sync = a.discordSync || {};
+    const discordInfo = a.discordUserId
+      ? `<p class="hint">Discord: <code>${escapeHtml(a.discordUserId)}</code>${sync.messageId ? ' · aviso publicado no canal de resultados' : ''}${sync.lastError ? ` · ⚠ último erro ao atualizar o Discord: ${escapeHtml(sync.lastError)}` : ''}</p>`
+      : '<p class="hint">Sem vínculo com o Discord.</p>';
     const summary = `
+      ${a.deletedAt ? `<p class="error-msg">Resultado EXCLUÍDO em ${fmtDate(a.deletedAt)} por ${escapeHtml(a.deletedBy || '')} — motivo: ${escapeHtml(a.deleteReason || '')}</p>` : ''}
+      ${discordInfo}
       <div class="detail-grid">
-        <div class="stat-card"><div class="stat-value">${a.score}</div><div class="stat-label">Nota</div></div>
+        <div class="stat-card"><div class="stat-value">${a.effectiveScore}${a.maxScoreComputed != null ? ` / ${a.maxScoreComputed}` : ''}</div><div class="stat-label">Nota${a.adjustedScore != null ? ` (ajustada — calculada: ${a.score})` : ''}</div></div>
         <div class="stat-card"><div class="stat-value">${a.correctCount}</div><div class="stat-label">Acertos</div></div>
         <div class="stat-card"><div class="stat-value">${a.wrongCount}</div><div class="stat-label">Erros</div></div>
         <div class="stat-card"><div class="stat-value">${a.unansweredCount}</div><div class="stat-label">Não respondidas</div></div>
@@ -943,6 +1026,7 @@
         <div class="stat-card"><div class="stat-value">${(a.streamEvents || []).filter((s) => s.type === 'interrupted').length}</div><div class="stat-label">Interrupções de transmissão</div></div>
       </div>
       <p class="hint">Início: ${fmtDate(a.startedAt)} · Fim: ${fmtDate(a.finishedAt)}</p>
+      ${audit}
       <div class="audit-filters">
         ${['all', 'correct', 'wrong', 'unanswered'].map((f) => `<button class="small-btn ${f === filter ? '' : 'secondary-btn'}" data-filter="${f}">${{ all: 'Todas', correct: 'Corretas', wrong: 'Erradas', unanswered: 'Não respondidas' }[f]}</button>`).join('')}
       </div>

@@ -13,12 +13,15 @@ const SecurityLog = require('../models/SecurityLog');
 const { requireAdmin } = require('../middleware/auth');
 const { adminLoginLimiter, adminApiLimiter } = require('../middleware/rateLimit');
 const { uploadImage, uploadVideo } = require('../middleware/upload');
-const { generateToken, hashToken } = require('../lib/tokens');
+const { createRoom, regenerateStudentLink, addProctorLink } = require('../lib/rooms');
 const { logSecurityEvent } = require('../lib/securityLog');
 const { OPTION_KEYS, DEFAULT_THEME } = require('../lib/constants');
 const { buildIceServers } = require('../lib/turn');
 const { parseQuestionsCsv, EXPECTED_COLUMNS } = require('../lib/csvImport');
 const liveState = require('../lib/liveState');
+const { finalizeAttempt } = require('../lib/examLifecycle');
+const results = require('../lib/results');
+const env = require('../config/env');
 const { createSafeRouter } = require('../lib/safeRouter');
 
 const router = createSafeRouter();
@@ -110,6 +113,8 @@ router.get('/me', requireAdmin, (req, res) => {
 });
 
 router.use(requireAdmin, adminApiLimiter);
+
+router.use('/discord', require('./adminDiscord'));
 
 // ===================== Configurações da plataforma =====================
 
@@ -472,23 +477,11 @@ router.post('/rooms', async (req, res) => {
   if (!roomLabel || !String(roomLabel).trim()) return res.status(400).json({ success: false, message: 'Identificação da sala é obrigatória.' });
   if (!studentName || !String(studentName).trim()) return res.status(400).json({ success: false, message: 'Nome do aluno é obrigatório.' });
 
-  const exam = await Exam.findById(examId);
-  if (!exam) return res.status(404).json({ success: false, message: 'Prova não encontrada.' });
-
-  const rawToken = generateToken();
-  const room = await Room.create({
-    examId,
-    roomLabel: String(roomLabel).trim(),
-    studentName: String(studentName).trim(),
-    studentTokenHash: hashToken(rawToken),
-    createdBy: req.session.admin.id,
+  const { room, studentLink } = await createRoom({
+    examId, roomLabel, studentName, createdBy: req.session.admin.id, createdVia: 'admin',
   });
 
-  res.status(201).json({
-    success: true,
-    room,
-    studentLink: `/aluno/${rawToken}`,
-  });
+  res.status(201).json({ success: true, room, studentLink });
 });
 
 // O link do aluno só é mostrado uma vez na criação (só o hash fica salvo —
@@ -499,33 +492,20 @@ router.post('/rooms', async (req, res) => {
 router.post('/rooms/:roomId/regenerate-student-link', async (req, res) => {
   const { roomId } = req.params;
   if (!isValidObjectId(roomId)) return res.status(400).json({ success: false, message: 'ID inválido.' });
-  const room = await Room.findById(roomId);
-  if (!room) return res.status(404).json({ success: false, message: 'Sala não encontrada.' });
-
-  const rawToken = generateToken();
-  room.studentTokenHash = hashToken(rawToken);
-  await room.save();
+  const { studentLink } = await regenerateStudentLink(roomId);
   await logSecurityEvent('student_link_regenerated_by_admin', { meta: { roomId }, ip: req.ip });
 
-  res.json({ success: true, studentLink: `/aluno/${rawToken}` });
+  res.json({ success: true, studentLink });
 });
 
 router.post('/rooms/:roomId/proctor-tokens', async (req, res) => {
   const { roomId } = req.params;
   if (!isValidObjectId(roomId)) return res.status(400).json({ success: false, message: 'ID inválido.' });
-  const room = await Room.findById(roomId);
-  if (!room) return res.status(404).json({ success: false, message: 'Sala não encontrada.' });
 
   const { label } = req.body || {};
-  const rawToken = generateToken();
-  room.proctorTokens.push({ label: label ? String(label).trim() : 'Fiscal', tokenHash: hashToken(rawToken) });
-  await room.save();
+  const { proctorLink, tokenId } = await addProctorLink(roomId, { label });
 
-  res.status(201).json({
-    success: true,
-    proctorLink: `/professor/${rawToken}`,
-    tokenId: room.proctorTokens[room.proctorTokens.length - 1]._id,
-  });
+  res.status(201).json({ success: true, proctorLink, tokenId });
 });
 
 router.delete('/rooms/:roomId/proctor-tokens/:tokenId', async (req, res) => {
@@ -550,12 +530,17 @@ router.post('/rooms/:roomId/close', async (req, res) => {
   room.status = 'closed';
   await room.save();
 
+  // Encerrar a sala no meio da prova finaliza a tentativa pelo mesmo caminho
+  // da finalização normal — ou seja, corrigida no servidor com o que o aluno
+  // já respondeu. Antes a tentativa ficava "finished" sem correção (nota 0
+  // mesmo com acertos), o que ia parar errado nos resultados e no Discord.
   if (room.currentAttemptId) {
-    await ExamAttempt.findOneAndUpdate(
-      { _id: room.currentAttemptId, status: 'in_progress' },
-      { status: 'finished', finishedAt: new Date() },
-    );
+    const attempt = await ExamAttempt.findOne({ _id: room.currentAttemptId, status: 'in_progress' });
+    if (attempt) await finalizeAttempt(attempt, 'admin_closed');
   }
+  // finalizeAttempt marca a sala como "finished"; aqui ela precisa ficar
+  // "closed" (links deixam de funcionar).
+  await Room.updateOne({ _id: room._id }, { status: 'closed' });
 
   req.app.get('io').to(`room:${roomId}`).emit('room:closed');
   liveState.removeRoom(roomId);
@@ -592,7 +577,7 @@ router.delete('/rooms/:roomId', async (req, res) => {
 router.get('/dashboard', async (req, res) => {
   const [examsInProgress, examsFinished, roomsActive] = await Promise.all([
     ExamAttempt.countDocuments({ status: 'in_progress' }),
-    ExamAttempt.countDocuments({ status: { $in: ['finished', 'finished_timeout'] } }),
+    ExamAttempt.countDocuments({ status: { $in: ['finished', 'finished_timeout'] }, deletedAt: null }),
     Room.countDocuments({ status: 'active' }),
   ]);
 
@@ -629,19 +614,36 @@ router.get('/ice-servers', (req, res) => {
 // ===================== Resultados e auditoria =====================
 
 router.get('/results', async (req, res) => {
-  const { examId, status } = req.query;
-  const filter = {};
-  if (examId && isValidObjectId(examId)) filter.examId = examId;
-  if (status) filter.status = status;
-
-  const attempts = await ExamAttempt.find(filter)
-    .select('-snapshot')
-    .populate('roomId', 'roomLabel studentName')
-    .populate('examId', 'name')
-    .sort({ createdAt: -1 })
-    .lean();
-
+  const { examId, status, includeDeleted } = req.query;
+  const attempts = await results.listForAdmin({ examId, status, includeDeleted: includeDeleted === '1' });
+  const promotions = await results.promotionMap(env.discord.guildId, attempts.map((a) => a.discordUserId).filter(Boolean));
+  for (const a of attempts) {
+    const promo = a.discordUserId ? promotions.get(a.discordUserId) : null;
+    a.promotion = promo ? { status: promo.status, active: Boolean(promo.lockKey), completedAt: promo.completedAt, attemptId: promo.attemptId } : null;
+  }
   res.json({ success: true, attempts });
+});
+
+function adminActor(req) {
+  return `admin:${req.session.admin.username}`;
+}
+
+// Ajuste manual da nota (a nota calculada original é preservada). Motivo
+// obrigatório; faixa de 0 até a pontuação máxima congelada da tentativa.
+router.put('/results/:attemptId/score', async (req, res) => {
+  const { attemptId } = req.params;
+  const { score, reason } = req.body || {};
+  const out = await results.adjustScore({ attemptId, score, reason, actor: adminActor(req) });
+  await logSecurityEvent('result_score_adjusted', { meta: { attemptId, before: out.before, after: out.after, by: adminActor(req) }, ip: req.ip });
+  res.json({ success: true, warning: out.warning, effectiveScore: results.effectiveScore(out.attempt), maxScore: results.maxScoreOf(out.attempt) });
+});
+
+router.post('/results/:attemptId/discord-link', async (req, res) => {
+  const { attemptId } = req.params;
+  const { discordUserId, reason } = req.body || {};
+  const out = await results.linkDiscordUser({ attemptId, discordUserId, guildId: env.discord.guildId, reason, actor: adminActor(req) });
+  await logSecurityEvent('result_discord_linked', { meta: { attemptId, before: out.before, discordUserId: out.attempt.discordUserId, by: adminActor(req) }, ip: req.ip });
+  res.json({ success: true });
 });
 
 router.get('/results/:attemptId', async (req, res) => {
@@ -653,6 +655,8 @@ router.get('/results/:attemptId', async (req, res) => {
     .populate('examId', 'name')
     .lean();
   if (!attempt) return res.status(404).json({ success: false, message: 'Tentativa não encontrada.' });
+  attempt.maxScoreComputed = results.maxScoreOf(attempt);
+  attempt.effectiveScore = results.effectiveScore(attempt);
 
   const { filter } = req.query;
   let questions = attempt.snapshot;
@@ -675,27 +679,19 @@ router.get('/results/:attemptId', async (req, res) => {
   });
 });
 
-// Apaga só a NOTA/tentativa (mantém a sala, que volta a ficar disponível
+// Retira a NOTA/tentativa (mantém a sala, que volta a ficar disponível
 // para uma tentativa nova) — diferente de excluir a sala inteira. Nunca
 // afeta outras tentativas: cada uma é um documento independente amarrado
-// ao _id da sala, nunca ao nome digitado, então duas salas com o mesmo
-// nome de aluno jamais compartilham ou sobrescrevem uma tentativa.
+// ao _id da sala, nunca ao nome digitado. É uma exclusão LÓGICA: o
+// resultado some das consultas (site e Discord) e das promoções, mas fica
+// guardado com motivo/autor para auditoria; os eventos da prova também
+// são mantidos.
 router.delete('/results/:attemptId', async (req, res) => {
   const { attemptId } = req.params;
-  if (!isValidObjectId(attemptId)) return res.status(400).json({ success: false, message: 'ID inválido.' });
-
-  const attempt = await ExamAttempt.findById(attemptId);
-  if (!attempt) return res.status(404).json({ success: false, message: 'Tentativa não encontrada.' });
-
-  await ExamEvent.deleteMany({ attemptId });
-  await ExamAttempt.findByIdAndDelete(attemptId);
-  await Room.findOneAndUpdate(
-    { _id: attempt.roomId, currentAttemptId: attempt._id },
-    { currentAttemptId: null, status: 'pending' },
-  );
-
-  await logSecurityEvent('result_deleted_by_admin', { meta: { attemptId, roomId: attempt.roomId?.toString() }, ip: req.ip });
-  res.json({ success: true });
+  const { reason } = req.body || {};
+  const out = await results.softDeleteResult({ attemptId, reason, actor: adminActor(req) });
+  await logSecurityEvent('result_deleted_by_admin', { meta: { attemptId, roomId: out.attempt.roomId?.toString(), by: adminActor(req), reason: out.attempt.deleteReason }, ip: req.ip });
+  res.json({ success: true, warning: out.warning });
 });
 
 router.get('/exam-events', async (req, res) => {

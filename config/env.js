@@ -33,4 +33,14 @@ module.exports = {
   turnCredential: process.env.TURN_CREDENTIAL || null,
   seedAdminUsername: process.env.SEED_ADMIN_USERNAME || null,
   seedAdminPassword: process.env.SEED_ADMIN_PASSWORD || null,
+  // O Render já define RENDER_EXTERNAL_URL (https://<serviço>.onrender.com)
+  // em todo serviço web — é a URL pública usada nos links que o bot do
+  // Discord entrega. Fora do Render (teste local), cai no localhost.
+  publicBaseUrl: (process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || '3000'}`).replace(/\/+$/, ''),
+  discord: {
+    enabled: process.env.DISCORD_ENABLED === 'true',
+    botToken: process.env.DISCORD_BOT_TOKEN || null,
+    clientId: process.env.DISCORD_CLIENT_ID || null,
+    guildId: process.env.DISCORD_GUILD_ID || null,
+  },
 };

@@ -99,3 +99,15 @@
 }
 .monitor-grid.is-expanded .monitor-tile.is-expanded-tile .monitor-video-wrap { flex: 1; aspect-ratio: unset; }
 .monitor-grid.is-expanded .monitor-tile.is-expanded-tile .monitor-tile-header strong { font-size: 16px; }
+
+/* ---------------- Aba Discord / Resultados ---------------- */
+.discord-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+.discord-form .field-group { display: flex; flex-direction: column; }
+.discord-subtitle { margin: 18px 0 6px; font-size: 13px; color: var(--text-lilac); text-transform: uppercase; letter-spacing: 0.05em; }
+tr.result-deleted td { opacity: 0.55; }
+td.result-actions button { margin: 2px 0; }

@@ -57,6 +57,7 @@
         <button class="tab-btn" data-tab="monitor-tab">Central de Monitoramento</button>
         <button class="tab-btn" data-tab="results-tab">Resultados</button>
         <button class="tab-btn" data-tab="security-tab">Segurança &amp; Auditoria</button>
+        <button class="tab-btn" data-tab="discord-tab">Discord</button>
       </div>
 
       <!-- DASHBOARD -->
@@ -271,10 +272,14 @@
               <label>Filtrar por fiscal</label>
               <input id="results-proctor-filter" placeholder="Nome do fiscal..." />
             </div>
+            <div class="field-group" style="max-width:190px;justify-content:flex-end">
+              <label><input type="checkbox" id="results-include-deleted" /> Mostrar excluídos (auditoria)</label>
+            </div>
           </div>
+          <p class="hint" id="results-warning" style="margin-top:0"></p>
           <div class="table-scroll">
             <table class="data-table">
-              <thead><tr><th>Aluno</th><th>Sala</th><th>Prova</th><th>Fiscal(is)</th><th>Nota</th><th>Acertos</th><th>Erros</th><th>Início</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Aluno</th><th>Discord</th><th>Sala</th><th>Prova</th><th>Fiscal(is)</th><th>Nota</th><th>Acertos</th><th>Erros</th><th>Início</th><th>Status</th><th></th></tr></thead>
               <tbody id="results-tbody"></tbody>
             </table>
           </div>
@@ -289,6 +294,82 @@
             <table class="data-table">
               <thead><tr><th>Quando</th><th>Tipo</th><th>IP</th><th>Detalhes</th></tr></thead>
               <tbody id="security-logs-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- DISCORD -->
+      <div id="discord-tab" class="tab-panel hidden">
+        <div class="panel-section">
+          <div class="panel-section-header">
+            <h3>Situação do bot</h3>
+            <button class="small-btn secondary-btn" id="discord-refresh-btn" style="margin:0">🔄 Atualizar</button>
+          </div>
+          <div id="discord-status" class="panel-grid"></div>
+          <p class="hint" id="discord-status-hint"></p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <a class="secondary-btn small-btn hidden" id="discord-invite-link" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-block">➕ Convidar o bot para o servidor</a>
+            <button class="small-btn secondary-btn" id="discord-register-btn" style="margin:0">Registrar /provatcel no servidor</button>
+          </div>
+          <p class="hint" id="discord-register-msg"></p>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Configuração</h3></div>
+          <p class="hint" style="margin-top:0">Use os IDs numéricos copiados do Discord (Modo desenvolvedor → botão direito → Copiar ID). Para listas, separe por vírgula. O token do bot NÃO fica aqui — só nas variáveis de ambiente do Render.</p>
+          <form id="discord-config-form" class="discord-form">
+            <div class="discord-form-grid">
+              <div class="field-group"><label>Canal do painel (/provatcel e botões)</label><input id="dc-panel-channel" placeholder="ID do canal" /></div>
+              <div class="field-group"><label>Canal de resultados (avisos de prova finalizada)</label><input id="dc-results-channel" placeholder="ID do canal" /></div>
+              <div class="field-group"><label>Cargos que podem GERAR PROVA</label><input id="dc-roles-generate" placeholder="IDs de cargos" /></div>
+              <div class="field-group"><label>Cargos que podem CONSULTAR NOTAS</label><input id="dc-roles-results" placeholder="IDs de cargos" /></div>
+              <div class="field-group"><label>Cargos que podem PROMOVER</label><input id="dc-roles-promote" placeholder="IDs de cargos" /></div>
+              <div class="field-group"><label>Prova padrão do "Gerar Prova"</label><select id="dc-default-exam"></select></div>
+            </div>
+            <h4 class="discord-subtitle">Promoção</h4>
+            <p class="hint" style="margin-top:0">Os cargos de destino da promoção NÃO dão permissão para operar o bot — isso é só pelos cargos de operador acima.</p>
+            <div class="discord-form-grid">
+              <div class="field-group"><label>Cargos a adicionar</label><input id="dc-add-roles" /></div>
+              <div class="field-group"><label>Cargos a remover</label><input id="dc-remove-roles" /></div>
+              <div class="field-group"><label>Canal de anúncio de promoções</label><input id="dc-announce-channel" /></div>
+              <div class="field-group"><label>Cargo mencionado no anúncio</label><input id="dc-announce-role" /></div>
+              <div class="field-group"><label>Modelo do apelido (máx. 32 caracteres no total)</label><input id="dc-nickname-template" /></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button type="submit" class="small-btn">Salvar configuração</button>
+              <button type="button" class="small-btn secondary-btn" id="discord-verify-btn">Verificar no Discord</button>
+            </div>
+            <p class="error-msg" id="discord-config-msg"></p>
+          </form>
+          <div id="discord-verify-result"></div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-section-header">
+            <h3>Fila de envios ao Discord</h3>
+            <select id="discord-tasks-filter" style="max-width:200px">
+              <option value="">Todas</option>
+              <option value="failed">Com falha</option>
+              <option value="pending">Pendentes</option>
+              <option value="done">Concluídas</option>
+            </select>
+          </div>
+          <p class="hint" style="margin-top:0">Avisos de resultado, execuções de promoção e anúncios. Se o Discord cair, tudo espera aqui e é retomado sozinho. "Reprocessar" só aparece para tarefas com falha.</p>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Quando</th><th>Tipo</th><th>Situação</th><th>Tentativas</th><th>Detalhe / último erro</th><th></th></tr></thead>
+              <tbody id="discord-tasks-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h3>Promoções feitas pelo bot</h3>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Quando</th><th>Usuário (ID Discord)</th><th>Apelido</th><th>Situação</th><th>Etapas</th><th></th></tr></thead>
+              <tbody id="discord-promotions-tbody"></tbody>
             </table>
           </div>
         </div>
@@ -308,5 +389,6 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/admin/monitor.js"></script>
   <script src="/admin/client.js"></script>
+  <script src="/admin/discord.js"></script>
 </body>
 </html>

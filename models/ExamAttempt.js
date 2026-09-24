@@ -25,6 +25,17 @@ const streamEventSchema = new mongoose.Schema({
   meta: { type: mongoose.Schema.Types.Mixed, default: null },
 }, { _id: false });
 
+// Histórico de ajustes/exclusão/vínculo feitos pelo admin sobre o
+// resultado — quem, quando, por quê, antes e depois.
+const auditEntrySchema = new mongoose.Schema({
+  type: { type: String, required: true },
+  at: { type: Date, default: Date.now },
+  by: { type: String, required: true },
+  reason: { type: String, required: true },
+  before: { type: mongoose.Schema.Types.Mixed, default: null },
+  after: { type: mongoose.Schema.Types.Mixed, default: null },
+}, { _id: false });
+
 const examAttemptSchema = new mongoose.Schema({
   roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true, index: true },
   examId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', required: true },
@@ -73,8 +84,38 @@ const examAttemptSchema = new mongoose.Schema({
   streamEvents: { type: [streamEventSchema], default: [] },
 
   lastActivityAt: { type: Date, default: Date.now },
+
+  // ---- Integração Discord e gestão de resultados ----
+  // Vínculo copiado da sala no início da tentativa: continua existindo
+  // mesmo que a sala seja excluída depois. Nunca vem do navegador do aluno.
+  discordGuildId: { type: String, default: null },
+  discordUserId: { type: String, default: null },
+  // Pontuação máxima congelada no momento da prova (questões sorteadas ×
+  // pontos por questão). Tentativas antigas sem este campo usam o mesmo
+  // cálculo a partir do snapshot — ver lib/results.js maxScoreOf().
+  maxScore: { type: Number, default: null },
+  // Nota ajustada manualmente pelo admin. A nota calculada (score) e os
+  // acertos/erros nunca são alterados — quando existe, esta é a efetiva.
+  adjustedScore: { type: Number, default: null },
+  // Incrementado a cada mudança relevante do resultado (finalização,
+  // ajuste, exclusão, vínculo). A fila do Discord usa isto para nunca
+  // publicar uma versão antiga por cima de uma mais nova.
+  revision: { type: Number, default: 0 },
+  deletedAt: { type: Date, default: null },
+  deletedBy: { type: String, default: null },
+  deleteReason: { type: String, default: null },
+  auditTrail: { type: [auditEntrySchema], default: [] },
+  discordSync: {
+    wantsMessage: { type: Boolean, default: false },
+    syncedRevision: { type: Number, default: 0 },
+    channelId: { type: String, default: null },
+    messageId: { type: String, default: null },
+    lastError: { type: String, default: null },
+    lastErrorAt: { type: Date, default: null },
+  },
 }, { timestamps: true });
 
 examAttemptSchema.index({ roomId: 1, status: 1 });
+examAttemptSchema.index({ discordGuildId: 1, discordUserId: 1, deletedAt: 1 });
 
 module.exports = mongoose.model('ExamAttempt', examAttemptSchema);

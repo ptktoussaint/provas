@@ -614,8 +614,8 @@ router.get('/ice-servers', (req, res) => {
 // ===================== Resultados e auditoria =====================
 
 router.get('/results', async (req, res) => {
-  const { examId, status, includeDeleted } = req.query;
-  const attempts = await results.listForAdmin({ examId, status, includeDeleted: includeDeleted === '1' });
+  const { examId, status, includeDeleted, archived } = req.query;
+  const attempts = await results.listForAdmin({ examId, status, includeDeleted: includeDeleted === '1', archived: ['hide', 'show', 'only'].includes(archived) ? archived : 'hide' });
   const promotions = await results.promotionMap(env.botghost.allowedGuildId, attempts.map((a) => a.discordUserId).filter(Boolean));
   for (const a of attempts) {
     const promo = a.discordUserId ? promotions.get(a.discordUserId) : null;
@@ -638,6 +638,25 @@ router.put('/results/:attemptId/score', async (req, res) => {
   res.json({ success: true, warning: out.warning, effectiveScore: results.effectiveScore(out.attempt), maxScore: results.maxScoreOf(out.attempt) });
 });
 
+// Pontos da prova oral, somados à nota da prova (sem teto: a soma pode
+// passar da pontuação máxima da prova escrita).
+router.put('/results/:attemptId/oral', async (req, res) => {
+  const { attemptId } = req.params;
+  const { oralScore, reason } = req.body || {};
+  const out = await results.setOralScore({ attemptId, oralScore, reason, actor: adminActor(req) });
+  await logSecurityEvent('result_oral_score_set', { meta: { attemptId, before: out.before, after: out.after, by: adminActor(req) }, ip: req.ip });
+  res.json({ success: true, warning: out.warning, effectiveScore: results.effectiveScore(out.attempt) });
+});
+
+// Arquivar: some da consulta do bot e dos candidatos à promoção.
+router.post('/results/:attemptId/archive', async (req, res) => {
+  const { attemptId } = req.params;
+  const archived = Boolean((req.body || {}).archived);
+  await results.setArchived({ attemptId, archived, actor: adminActor(req) });
+  await logSecurityEvent(archived ? 'result_archived' : 'result_unarchived', { meta: { attemptId, by: adminActor(req) }, ip: req.ip });
+  res.json({ success: true });
+});
+
 router.post('/results/:attemptId/discord-link', async (req, res) => {
   const { attemptId } = req.params;
   const { discordUserId, reason } = req.body || {};
@@ -657,6 +676,7 @@ router.get('/results/:attemptId', async (req, res) => {
   if (!attempt) return res.status(404).json({ success: false, message: 'Tentativa não encontrada.' });
   attempt.maxScoreComputed = results.maxScoreOf(attempt);
   attempt.effectiveScore = results.effectiveScore(attempt);
+  attempt.writtenScore = results.writtenScore(attempt);
 
   const { filter } = req.query;
   let questions = attempt.snapshot;

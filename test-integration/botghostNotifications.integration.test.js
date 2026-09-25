@@ -97,12 +97,13 @@ test('reserva concorrente: só um executor recebe o conteúdo', async () => {
   assert.deepEqual(codes, ['already_claimed', 'claimed']);
 });
 
-test('nota editada e excluída: a mesma mensagem é editada, versão atual, sem novo ping', async () => {
+test('prova oral lançada e resultado excluído: a mesma mensagem é editada, versão atual, sem novo ping', async () => {
   const attempt = await finishedFor('700000000000000001');
   const n = await M.Notification.findOne({ attemptId: attempt._id });
   const c1 = await claim(n._id);
-  // Nota muda ENQUANTO está reservada: depois do ack, agenda nova edição.
-  await M.results.adjustScore({ attemptId: String(attempt._id), score: 90, reason: 'revisão', actor: 'admin:teste' });
+  // Pontos da prova oral lançados ENQUANTO está reservada: depois do ack,
+  // agenda nova edição. A soma pode passar de 100.
+  await M.results.setOralScore({ attemptId: String(attempt._id), oralScore: 30, actor: 'admin:teste' });
   await ack(n._id, { leaseToken: c1.body.data.leaseToken, outcome: 'delivered', messageId: '1400000000000000002' });
   const after = await M.Notification.findById(n._id).lean();
   assert.equal(after.status, 'pending');
@@ -111,7 +112,8 @@ test('nota editada e excluída: a mesma mensagem é editada, versão atual, sem 
   assert.equal(c2.body.data.action, 'edit');
   assert.equal(c2.body.data.messageId, '1400000000000000002');
   assert.equal(c2.body.data.templateKey, 'result_updated');
-  assert.match(JSON.stringify(c2.body.data.message), /90/);
+  assert.equal(c2.body.data.message.content, 'Prova finalizada: <@700000000000000001> — Prova (80) + Prova Oral (30) = 110 — Prova: Prova TCEL');
+  assert.ok(!/ajustada/i.test(JSON.stringify(c2.body.data.message)));
   assert.deepEqual(c2.body.data.message.allowed_mentions.parse, []);
   await ack(n._id, { leaseToken: c2.body.data.leaseToken, outcome: 'delivered', messageId: '1400000000000000002' });
 
@@ -119,7 +121,7 @@ test('nota editada e excluída: a mesma mensagem é editada, versão atual, sem 
   const c3 = await claim(n._id);
   assert.equal(c3.body.data.templateKey, 'result_removed');
   assert.equal(c3.body.data.action, 'edit');
-  assert.ok(!JSON.stringify(c3.body.data.message).includes('90 /'));
+  assert.ok(!JSON.stringify(c3.body.data.message).includes('110'));
 });
 
 test('resultado excluído antes de publicar: nada aparece no canal', async () => {

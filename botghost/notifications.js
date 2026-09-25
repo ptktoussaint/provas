@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const IntegrationNotification = require('../models/IntegrationNotification');
 const ExamAttempt = require('../models/ExamAttempt');
 const Promotion = require('../models/Promotion');
-const { maxScoreOf, effectiveScore, isFinished } = require('../lib/results');
+const { maxScoreOf, effectiveScore, writtenScore, isFinished } = require('../lib/results');
 const { logSecurityEvent } = require('../lib/securityLog');
 const { isSnowflake } = require('../lib/discordIds');
 const configStore = require('./configStore');
@@ -148,6 +148,9 @@ function resultContext(attempt) {
       'resultado.nota': fmtNumber(effectiveScore(attempt)),
       'resultado.total': fmtNumber(maxScoreOf(attempt)),
       'resultado.notaOriginal': fmtNumber(attempt.score),
+      'resultado.notaProva': fmtNumber(writtenScore(attempt)),
+      'resultado.notaOral': fmtNumber(attempt.oralScore || 0),
+      'resultado.notaFinal': fmtNumber(effectiveScore(attempt)),
       'resultado.situacao': finishedLabel,
       'resultado.tentativa': String(attempt._id).slice(-6),
       'resultado.data': fmtDateTime(attempt.finishedAt),
@@ -195,11 +198,14 @@ async function buildClaimContent(n, config) {
     }
     if (!isFinished(attempt)) throw new ClaimProblem(409, 'not_ready', 'A prova ainda não foi finalizada.');
     const { ctx, pingIds } = resultContext(attempt);
+    // Com prova oral lançada, a mensagem mostra a soma (antes ou depois de
+    // já ter sido publicada).
+    const templateKey = attempt.oralScore != null ? 'result_updated' : 'result_finished';
     if (hasMessage) {
-      return { templateKey: attempt.adjustedScore != null ? 'result_updated' : 'result_finished', action: 'edit', channelId: n.message.channelId, messageId: n.message.messageId, ctx, pingIds, revision };
+      return { templateKey, action: 'edit', channelId: n.message.channelId, messageId: n.message.messageId, ctx, pingIds, revision };
     }
     if (!config.channels.results) throw new ClaimProblem(409, 'config_missing', 'Canal de resultados não configurado na aba Integração BotGhost.');
-    return { templateKey: 'result_finished', action: 'send', channelId: config.channels.results, ctx, pingIds, revision };
+    return { templateKey, action: 'send', channelId: config.channels.results, ctx, pingIds, revision };
   }
   if (n.kind === 'promotion_announcement') {
     const { ctx, pingIds } = announcementContext(n.payload, n.chunkIndex || 0);

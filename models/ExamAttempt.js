@@ -97,6 +97,14 @@ const examAttemptSchema = new mongoose.Schema({
   // Nota ajustada manualmente pelo admin. A nota calculada (score) e os
   // acertos/erros nunca são alterados — quando existe, esta é a efetiva.
   adjustedScore: { type: Number, default: null },
+  // Pontos da prova oral, lançados pelo admin e SOMADOS à nota da prova
+  // escrita (a nota final pode passar da pontuação máxima da escrita).
+  oralScore: { type: Number, default: null },
+  // Arquivado: continua no admin (filtro), mas some da consulta do bot e
+  // dos candidatos à promoção. Diferente de excluir: não mexe na sala nem
+  // na mensagem já publicada.
+  archivedAt: { type: Date, default: null },
+  archivedBy: { type: String, default: null },
   // Incrementado a cada mudança relevante do resultado (finalização,
   // ajuste, exclusão, vínculo). A fila do Discord usa isto para nunca
   // publicar uma versão antiga por cima de uma mais nova.

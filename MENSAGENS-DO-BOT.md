@@ -64,6 +64,17 @@ Nunca aparece `[object Object]` nem JSON como texto na mensagem. O Discord não 
   - publicar vale para a próxima edição da mensagem.
 - **Pendente:** ver o embed num Discord real. Faça pelo **Enviar teste** depois de montar a Parte E do BOTGHOST-MONTAGEM.md.
 
+## Prova oral
+
+Na aba **Resultados**, o botão **Adicionar Pontos Prova Oral** soma pontos à nota da prova. Não há limite de 100: a soma pode passar. Com prova oral lançada, o bot usa o modelo **Resultado com Prova Oral**, cujo padrão é:
+
+> Prova finalizada: @aluno — Prova (80) + Prova Oral (15) = 95 — Prova: NOME
+
+Se a mensagem já tinha sido publicada, ela é **editada**, sem novo ping. Variáveis desse modelo:
+- `[[resultado.notaProva]]` — nota da prova escrita
+- `[[resultado.notaOral]]` — pontos da prova oral
+- `[[resultado.notaFinal]]` — a soma das duas
+
 ## Referência: variáveis e modelos
 
 | Variável | O que é | Exemplo fictício |
@@ -81,7 +92,10 @@ Nunca aparece `[object Object]` nem JSON como texto na mensagem. O Discord não 
 | `[[sala.codigo]]` | Código curto da sala | #a1b2c3 |
 | `[[links.aluno]]` | Link do ALUNO (só em mensagem privada) ⚠️ | (link fictício) |
 | `[[links.fiscal]]` | Link do FISCAL (só em mensagem privada) ⚠️ | (link fictício) |
-| `[[resultado.nota]]` | Nota efetiva (ajustada, se houver) | 86 |
+| `[[resultado.nota]]` | Nota final (prova + prova oral, se houver) | 86 |
+| `[[resultado.notaProva]]` | Nota da prova escrita | 80 |
+| `[[resultado.notaOral]]` | Pontos da prova oral | 6 |
+| `[[resultado.notaFinal]]` | Prova + Prova Oral | 86 |
 | `[[resultado.total]]` | Pontuação máxima da tentativa | 100 |
 | `[[resultado.notaOriginal]]` | Nota calculada pelo site | 80 |
 | `[[resultado.situacao]]` | Finalizada / tempo esgotado | finalizada |
@@ -114,7 +128,7 @@ Nunca aparece `[object Object]` nem JSON como texto na mensagem. O Discord não 
 | Painel /provatcel (`panel`) | canal | `[[data]]` | ninguém |
 | Sala criada (links) (`room_created`) | só o operador | `[[data]]` `[[operador.mencao]]` `[[operador.nome]]` `[[operador.discordId]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[prova.duracao]]` `[[sala.nome]]` `[[sala.codigo]]` `[[links.aluno]]` `[[links.fiscal]]` | ninguém |
 | Resultado concluído (canal) (`result_finished`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.nota]]` `[[resultado.total]]` `[[resultado.situacao]]` `[[resultado.tentativa]]` `[[resultado.data]]` | Aluno (menção [[aluno.mencao]]) |
-| Resultado alterado (edição da mensagem) (`result_updated`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.nota]]` `[[resultado.total]]` `[[resultado.situacao]]` `[[resultado.tentativa]]` `[[resultado.data]]` `[[resultado.notaOriginal]]` | ninguém |
+| Resultado com Prova Oral (`result_updated`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.nota]]` `[[resultado.total]]` `[[resultado.situacao]]` `[[resultado.tentativa]]` `[[resultado.data]]` `[[resultado.notaOriginal]]` `[[resultado.notaProva]]` `[[resultado.notaOral]]` `[[resultado.notaFinal]]` | ninguém |
 | Resultado removido (edição da mensagem) (`result_removed`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.tentativa]]` | ninguém |
 | Consulta de resultados (`results_list`) | só o operador | `[[data]]` `[[operador.mencao]]` `[[operador.nome]]` `[[operador.discordId]]` `[[lista.resultados]]` `[[pagina.atual]]` `[[pagina.total]]` `[[resultados.total]]` `[[filtro.descricao]]` | ninguém |
 | Consulta sem resultados (`results_empty`) | só o operador | `[[data]]` `[[operador.mencao]]` `[[operador.nome]]` `[[operador.discordId]]` `[[filtro.descricao]]` | ninguém |

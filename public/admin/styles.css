@@ -110,6 +110,7 @@
 .discord-form .field-group { display: flex; flex-direction: column; }
 .discord-subtitle { margin: 18px 0 6px; font-size: 13px; color: var(--text-lilac); text-transform: uppercase; letter-spacing: 0.05em; }
 tr.result-deleted td { opacity: 0.55; }
+tr.result-archived td { opacity: 0.75; }
 td.result-actions button { margin: 2px 0; }
 
 /* ---------------- Mensagens do Bot (editor) ---------------- */

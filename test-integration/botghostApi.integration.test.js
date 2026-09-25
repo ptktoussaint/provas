@@ -200,10 +200,12 @@ test('Conferir resultados: lê o banco na hora, pagina, filtra e nunca devolve g
   assert.equal(one.body.data.items[0].score, 60);
 
   const attempt = await M.ExamAttempt.findOne({ discordUserId: '700000000000000002' });
-  await M.results.adjustScore({ attemptId: String(attempt._id), score: 75, reason: 'revisão da banca', actor: 'admin:teste' });
-  const adjusted = await api.call('GET', '/results', { ...H.actorFields(), student: '700000000000000002' });
-  assert.equal(adjusted.body.data.items[0].score, 75);
-  assert.equal(adjusted.body.data.items[0].adjusted, 'true');
+  await M.results.setOralScore({ attemptId: String(attempt._id), oralScore: 15, actor: 'admin:teste' });
+  const withOral = await api.call('GET', '/results', { ...H.actorFields(), student: '700000000000000002' });
+  assert.equal(withOral.body.data.items[0].score, 75);
+  assert.equal(withOral.body.data.items[0].hasOral, 'true');
+  assert.match(withOral.body.data.displayText, /Prova \(60\) \+ Prova Oral \(15\) = \*\*75\*\*/);
+  assert.ok(!/ajustada/i.test(withOral.text));
 
   await M.results.softDeleteResult({ attemptId: String(attempt._id), reason: 'fraude confirmada', actor: 'admin:teste' });
   const gone = await api.call('GET', '/results', { ...H.actorFields(), student: '700000000000000002' });

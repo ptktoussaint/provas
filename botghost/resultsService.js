@@ -24,7 +24,9 @@ function parseDate(value, endOfDay) {
 
 function line(item, index, promotions) {
   const who = item.discordUserId ? mention(item.discordUserId) : '*não vinculado*';
-  const score = `**${fmtNumber(item.effectiveScore)}/${fmtNumber(item.maxScoreComputed)}**${item.adjustedScore != null ? ' (ajustada)' : ''}`;
+  const score = item.oralScore != null
+    ? `Prova (${fmtNumber(item.writtenScore)}) + Prova Oral (${fmtNumber(item.oralScore)}) = **${fmtNumber(item.effectiveScore)}**`
+    : `**${fmtNumber(item.effectiveScore)}/${fmtNumber(item.maxScoreComputed)}**`;
   const exam = userText(item.examId && item.examId.name ? item.examId.name : '—', 40);
   const timeout = item.status === 'finished_timeout' ? ' · ⏱️ tempo esgotado' : '';
   const promo = item.discordUserId ? promotionBadge(promotions.get(item.discordUserId)) : '—';
@@ -70,7 +72,9 @@ async function search(actor, { studentDiscordId, examId, from, to, sort, page, p
         examName: item.examId && item.examId.name ? item.examId.name : '',
         score: item.effectiveScore,
         maxScore: item.maxScoreComputed,
-        adjusted: boolText(item.adjustedScore != null),
+        writtenScore: item.writtenScore,
+        oralScore: item.oralScore == null ? '' : item.oralScore,
+        hasOral: boolText(item.oralScore != null),
         finishedAt: item.finishedAt,
         status: item.status,
         promotion: item.discordUserId ? promotionBadge(data.promotions.get(item.discordUserId)) : '',

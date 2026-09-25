@@ -166,6 +166,8 @@ Gera **novos** links: um do aluno e um de fiscal para quem clicou. **Os anterior
 Lê o banco **na hora**. Mensagens já mostradas no Discord são "fotos" do momento e não se atualizam sozinhas: use o botão "Atualizar".
 - **URL Params:** identificação + (opcionais) `student` (ID/menção), `examId`, `from` e `to` (`AAAA-MM-DD` ou `DD/MM/AAAA`, horário de Brasília), `sort` (`date-desc` padrão, `date-asc`, `score-desc`, `score-asc`), `page` (começa em 0), `pageSize` (1–25, padrão 10)
 - **Resposta (`results` ou `results_empty`):** `total`, `page`, `pageNumber`, `pages`, `hasPrevious`, `hasNext`, `previousPage`, `nextPage`, `filterText`, `displayText`, `items` (lista resumida) e a mensagem pronta (modelos "Consulta de resultados" / "Lista vazia").
+  - Em cada item: `score` (nota final), `writtenScore` (prova escrita), `oralScore` e `hasOral`. Com prova oral, a linha mostra "Prova (X) + Prova Oral (Y) = Z".
+- Resultados **arquivados** pelo admin não aparecem aqui nem nos candidatos à promoção.
 - Se a página não couber numa mensagem do Discord, o site devolve menos itens por página. Ele **nunca corta** uma linha no meio.
 
 ---

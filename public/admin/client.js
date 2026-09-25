@@ -869,6 +869,7 @@
     const params = new URLSearchParams();
     if (examId) params.set('examId', examId);
     if (document.getElementById('results-include-deleted').checked) params.set('includeDeleted', '1');
+    params.set('archived', document.getElementById('results-archived-filter').value);
     const qs = params.toString() ? `?${params}` : '';
     const data = await api(`/results${qs}`);
     if (!data.success) return;
@@ -879,8 +880,10 @@
   document.getElementById('results-sort').addEventListener('change', renderResultsTable);
   document.getElementById('results-proctor-filter').addEventListener('input', renderResultsTable);
   document.getElementById('results-include-deleted').addEventListener('change', loadResults);
+  document.getElementById('results-archived-filter').addEventListener('change', loadResults);
 
-  // Nota efetiva: a ajustada pelo admin, quando existe; senão a calculada.
+  // Nota final: prova (a calculada, ou a ajustada em resultados antigos)
+  // + pontos da prova oral.
   function effScore(a) {
     return a.effectiveScore != null ? a.effectiveScore : (a.adjustedScore != null ? a.adjustedScore : (a.score || 0));
   }
@@ -918,10 +921,11 @@
   function scoreCell(a) {
     if (a.status === 'in_progress') return '—';
     const max = a.maxScoreComputed != null ? ` / ${a.maxScoreComputed}` : '';
-    if (a.adjustedScore != null) {
-      return `<strong>${a.adjustedScore}</strong>${max}<br><span class="hint">ajustada (calculada: ${a.score})</span>`;
+    const written = a.writtenScore != null ? a.writtenScore : a.score;
+    if (a.oralScore != null) {
+      return `<strong>${effScore(a)}</strong><br><span class="hint">Prova (${written}${max}) + Prova Oral (${a.oralScore})</span>`;
     }
-    return `${a.score}${max}`;
+    return `${written}${max}`;
   }
 
   function renderResultsTable() {
@@ -943,8 +947,9 @@
     tbody.innerHTML = rows.map((a) => {
       const finished = a.status === 'finished' || a.status === 'finished_timeout';
       const deleted = Boolean(a.deletedAt);
+      const archived = Boolean(a.archivedAt);
       return `
-      <tr class="${deleted ? 'result-deleted' : ''}">
+      <tr class="${deleted ? 'result-deleted' : archived ? 'result-archived' : ''}">
         <td>${escapeHtml(a.roomId ? a.roomId.studentName : a.studentName)}${a.roomId ? '' : ' <span class="hint">(sala excluída)</span>'}</td>
         <td>${discordCell(a)}</td>
         <td>${escapeHtml((a.roomId ? a.roomId.roomLabel : a.roomLabel) || '—')}</td>
@@ -956,10 +961,11 @@
         <td>${fmtDate(a.startedAt)}</td>
         <td>${deleted
           ? `<span class="badge badge-danger"><span class="badge-dot"></span>excluído</span><br><span class="hint">${escapeHtml(a.deleteReason || '')}</span>`
-          : `<span class="badge ${a.status === 'in_progress' ? 'badge-warn' : 'badge-ok'}"><span class="badge-dot"></span>${a.status}</span>`}</td>
+          : `<span class="badge ${a.status === 'in_progress' ? 'badge-warn' : 'badge-ok'}"><span class="badge-dot"></span>${a.status}</span>${archived ? '<br><span class="badge badge-neutral"><span class="badge-dot"></span>arquivado</span>' : ''}`}</td>
         <td class="result-actions">
           <button class="small-btn secondary-btn" data-detail="${a._id}">Detalhes</button>
-          ${!deleted && finished ? `<button class="small-btn secondary-btn" data-edit-score="${a._id}">Editar nota</button>` : ''}
+          ${!deleted && finished ? `<button class="small-btn secondary-btn" data-oral-score="${a._id}">Adicionar Pontos Prova Oral</button>` : ''}
+          ${!deleted && finished ? `<button class="small-btn secondary-btn" data-archive="${a._id}" data-archived="${archived ? '1' : '0'}" title="${archived ? 'Volta a aparecer no bot' : 'Some da consulta do bot e da promoção (continua aqui no admin)'}">${archived ? 'Desarquivar' : 'Arquivar'}</button>` : ''}
           ${!deleted && !a.discordUserId ? `<button class="small-btn secondary-btn" data-link-discord="${a._id}">Vincular Discord</button>` : ''}
           ${!deleted ? `<button class="small-btn danger-btn" data-delete-result="${a._id}">Excluir nota</button>` : ''}
         </td>
@@ -967,17 +973,23 @@
     }).join('');
 
     tbody.querySelectorAll('[data-detail]').forEach((btn) => btn.addEventListener('click', () => openDetail(btn.dataset.detail)));
-    tbody.querySelectorAll('[data-edit-score]').forEach((btn) => btn.addEventListener('click', async () => {
-      const a = resultsCache.find((x) => x._id === btn.dataset.editScore);
-      const max = a && a.maxScoreComputed != null ? a.maxScoreComputed : '?';
-      const value = prompt(`Nova nota (de 0 até ${max}). A nota calculada (${a ? a.score : '?'}) e os acertos continuam guardados.\nDeixe em branco para voltar a usar a nota calculada.`, a && a.adjustedScore != null ? String(a.adjustedScore) : '');
+    tbody.querySelectorAll('[data-oral-score]').forEach((btn) => btn.addEventListener('click', async () => {
+      const a = resultsCache.find((x) => x._id === btn.dataset.oralScore);
+      const written = a ? (a.writtenScore != null ? a.writtenScore : a.score) : '?';
+      const value = prompt(`Pontos da Prova Oral (somados à nota da prova: ${written}).\nA soma pode passar de 100.\nDeixe em branco para remover os pontos da prova oral.`, a && a.oralScore != null ? String(a.oralScore) : '');
       if (value === null) return;
-      const reason = askReason('alterar a nota');
-      if (!reason) return;
-      const score = value.trim() === '' ? null : Number(value.replace(',', '.'));
-      const data2 = await api(`/results/${btn.dataset.editScore}/score`, { method: 'PUT', body: JSON.stringify({ score, reason }) });
-      if (!data2.success) { alert(data2.message || 'Erro ao alterar a nota.'); return; }
+      const oralScore = value.trim() === '' ? null : Number(value.replace(',', '.'));
+      if (oralScore !== null && !Number.isFinite(oralScore)) { alert('Digite só números (ex.: 15 ou 7,5).'); return; }
+      const data2 = await api(`/results/${btn.dataset.oralScore}/oral`, { method: 'PUT', body: JSON.stringify({ oralScore }) });
+      if (!data2.success) { alert(data2.message || 'Erro ao lançar a prova oral.'); return; }
       showResultsWarning(data2.warning);
+      loadResults();
+    }));
+    tbody.querySelectorAll('[data-archive]').forEach((btn) => btn.addEventListener('click', async () => {
+      const archived = btn.dataset.archived !== '1';
+      if (archived && !window.confirm('Arquivar este resultado? Ele some da consulta do bot ("Conferir resultados") e da lista de promoção, mas continua aqui no admin (filtro "Arquivados"). A nota e a mensagem já publicada não mudam.')) return;
+      const data2 = await api(`/results/${btn.dataset.archive}/archive`, { method: 'POST', body: JSON.stringify({ archived }) });
+      if (!data2.success) { alert(data2.message || 'Erro ao arquivar.'); return; }
       loadResults();
     }));
     tbody.querySelectorAll('[data-link-discord]').forEach((btn) => btn.addEventListener('click', async () => {
@@ -1006,7 +1018,7 @@
     if (!data.success) { alert(data.message); return; }
 
     const a = data.attempt;
-    const auditLabels = { score_adjusted: 'Nota ajustada', score_adjustment_removed: 'Ajuste removido', result_deleted: 'Resultado excluído', discord_linked: 'Vinculado ao Discord' };
+    const auditLabels = { score_adjusted: 'Nota ajustada', score_adjustment_removed: 'Ajuste removido', oral_score_set: 'Pontos da Prova Oral', oral_score_removed: 'Prova Oral removida', result_archived: 'Arquivado', result_unarchived: 'Desarquivado', result_deleted: 'Resultado excluído', discord_linked: 'Vinculado ao Discord' };
     const audit = (a.auditTrail || []).length ? `
       <h4 style="margin:16px 0 6px">Histórico de alterações pelo admin</h4>
       ${(a.auditTrail || []).map((e) => `<p class="hint" style="margin:2px 0">${fmtDate(e.at)} — <strong>${escapeHtml(auditLabels[e.type] || e.type)}</strong> por ${escapeHtml(e.by)} · motivo: ${escapeHtml(e.reason)} · antes: ${escapeHtml(JSON.stringify(e.before))} · depois: ${escapeHtml(JSON.stringify(e.after))}</p>`).join('')}` : '';
@@ -1018,7 +1030,7 @@
       ${a.deletedAt ? `<p class="error-msg">Resultado EXCLUÍDO em ${fmtDate(a.deletedAt)} por ${escapeHtml(a.deletedBy || '')} — motivo: ${escapeHtml(a.deleteReason || '')}</p>` : ''}
       ${discordInfo}
       <div class="detail-grid">
-        <div class="stat-card"><div class="stat-value">${a.effectiveScore}${a.maxScoreComputed != null ? ` / ${a.maxScoreComputed}` : ''}</div><div class="stat-label">Nota${a.adjustedScore != null ? ` (ajustada — calculada: ${a.score})` : ''}</div></div>
+        <div class="stat-card"><div class="stat-value">${a.effectiveScore}${a.maxScoreComputed != null && a.oralScore == null ? ` / ${a.maxScoreComputed}` : ''}</div><div class="stat-label">Nota${a.oralScore != null ? ` final — Prova (${a.writtenScore != null ? a.writtenScore : a.score}) + Prova Oral (${a.oralScore})` : ''}</div></div>
         <div class="stat-card"><div class="stat-value">${a.correctCount}</div><div class="stat-label">Acertos</div></div>
         <div class="stat-card"><div class="stat-value">${a.wrongCount}</div><div class="stat-label">Erros</div></div>
         <div class="stat-card"><div class="stat-value">${a.unansweredCount}</div><div class="stat-label">Não respondidas</div></div>

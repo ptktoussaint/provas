@@ -76,7 +76,7 @@ async function lockedUserIds(guildId) {
 // mesmo usuário aparecem juntas (histórico).
 async function listCandidates(guildId, { studentDiscordId = null, page = 0 } = {}) {
   const locked = await lockedUserIds(guildId);
-  const match = { discordGuildId: guildId, deletedAt: null, status: { $in: FINISHED_STATUSES } };
+  const match = { discordGuildId: guildId, deletedAt: null, archivedAt: null, status: { $in: FINISHED_STATUSES } };
   if (studentDiscordId) {
     if (locked.includes(studentDiscordId)) return { items: [], total: 0, page: 0, pages: 1, locked };
     match.discordUserId = studentDiscordId;
@@ -106,7 +106,7 @@ function candidateSlots(items, selectedAttemptIds) {
     const c = items[i];
     const n = i + 1;
     slots[`opt${n}Label`] = c ? truncate(`${c.studentName} — ${fmtNumber(c.effectiveScore)}/${fmtNumber(c.maxScoreComputed)} — ${c.examId && c.examId.name ? c.examId.name : '—'}`, 100) : '-';
-    slots[`opt${n}Description`] = c ? truncate(`ID ${c.discordUserId} · ${fmtDate(c.finishedAt)} · tentativa ${String(c._id).slice(-6)}${c.adjustedScore != null ? ' · nota ajustada' : ''}`, 100) : '-';
+    slots[`opt${n}Description`] = c ? truncate(`ID ${c.discordUserId} · ${fmtDate(c.finishedAt)} · tentativa ${String(c._id).slice(-6)}${c.oralScore != null ? ` · prova ${fmtNumber(c.writtenScore)} + oral ${fmtNumber(c.oralScore)}` : ''}`, 100) : '-';
     slots[`opt${n}Value`] = c ? String(c._id) : `vazio-${n}`;
     slots[`opt${n}Hide`] = boolText(!c);
     slots[`opt${n}Default`] = boolText(Boolean(c && selectedAttemptIds.has(String(c._id))));
@@ -245,9 +245,10 @@ async function siteChecks(actor, draft) {
   for (const s of draft.selections) {
     const errors = [];
     const warnings = [];
-    const a = await ExamAttempt.findById(s.attemptId).select('status deletedAt discordUserId discordGuildId revision score adjustedScore maxScore pointsPerQuestion snapshot.order').lean();
+    const a = await ExamAttempt.findById(s.attemptId).select('status deletedAt archivedAt discordUserId discordGuildId revision score adjustedScore oralScore maxScore pointsPerQuestion snapshot.order').lean();
     let needsReReview = false;
     if (!a || a.deletedAt) errors.push('Resultado excluído ou inexistente.');
+    else if (a.archivedAt) errors.push('Resultado arquivado (desarquive no admin para promover).');
     else if (!isFinished(a)) errors.push('Resultado não é de prova finalizada.');
     else if (a.discordUserId !== s.discordUserId || a.discordGuildId !== actor.guildId) errors.push('Resultado não está mais vinculado a esta pessoa.');
     else if ((a.revision || 0) !== s.revisionAtSelection) { needsReReview = true; warnings.push(`A nota mudou desde a seleção (agora ${fmtNumber(effectiveScore(a))}).`); }

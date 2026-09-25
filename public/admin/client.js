@@ -908,24 +908,32 @@
     return reason.trim();
   }
 
-  function discordCell(a) {
-    if (!a.discordUserId) return '<span class="hint">não vinculado</span>';
-    let html = `<code>${escapeHtml(a.discordUserId)}</code>`;
+  // Aluno: nome, ID do Discord (ou "não vinculado") e situação da promoção.
+  function studentCell(a) {
+    let html = `<span class="cell-main">${escapeHtml(a.roomId ? a.roomId.studentName : a.studentName)}</span>`;
+    html += a.discordUserId ? `<span class="id-code">${escapeHtml(a.discordUserId)}</span>` : '<span class="cell-sub">Discord não vinculado</span>';
     if (a.promotion) {
       const labels = { completed: '✅ promovido', partial: '⚠ promoção parcial', failed: '❌ promoção falhou', pending: '⏳ promovendo', in_progress: '⏳ promovendo' };
-      html += `<br><span class="hint">${labels[a.promotion.status] || escapeHtml(a.promotion.status)}${a.promotion.active ? '' : ' (liberado)'}</span>`;
+      html += `<span class="cell-sub">${labels[a.promotion.status] || escapeHtml(a.promotion.status)}${a.promotion.active ? '' : ' (liberado)'}</span>`;
     }
+    if (!a.roomId) html += '<span class="cell-sub">sala excluída</span>';
     return html;
   }
 
+  function fmtScore(n) {
+    return Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+  }
+
+  // Nota final em destaque; embaixo, prova e prova oral em etiquetas.
   function scoreCell(a) {
-    if (a.status === 'in_progress') return '—';
-    const max = a.maxScoreComputed != null ? ` / ${a.maxScoreComputed}` : '';
-    const written = a.writtenScore != null ? a.writtenScore : a.score;
-    if (a.oralScore != null) {
-      return `<strong>${effScore(a)}</strong><br><span class="hint">Prova (${written}${max}) + Prova Oral (${a.oralScore})</span>`;
-    }
-    return `${written}${max}<br><span class="hint">Prova oral: Pendente</span>`;
+    if (a.status === 'in_progress') return '<span class="cell-muted">—</span>';
+    const max = a.maxScoreComputed != null ? `<span class="score-max">/${fmtScore(a.maxScoreComputed)}</span>` : '';
+    const written = fmtScore(a.writtenScore != null ? a.writtenScore : a.score);
+    const oral = a.oralScore != null
+      ? `<span class="score-chip">Oral ${fmtScore(a.oralScore)}</span>`
+      : '<span class="score-chip pending">Oral pendente</span>';
+    return `<div class="score-total">${fmtScore(effScore(a))}</div>
+      <div class="score-parts"><span class="score-chip">Prova ${written}${max}</span>${oral}</div>`;
   }
 
   // Fiscal principal (escolhido no formulário do Discord) em destaque; os
@@ -934,11 +942,72 @@
     const others = (a.proctorNames || []).filter((n) => n !== a.supervisorDisplayName);
     const parts = [];
     if (a.supervisorDiscordId) {
-      parts.push(`<span title="Fiscal principal escolhido no Discord">⭐ ${escapeHtml(a.supervisorDisplayName || 'sem nome')}</span><br><code>${escapeHtml(a.supervisorDiscordId)}</code>`);
+      parts.push(`<span class="cell-main" title="Fiscal principal escolhido no Discord">⭐ ${escapeHtml(a.supervisorDisplayName || 'sem nome')}</span><span class="id-code">${escapeHtml(a.supervisorDiscordId)}</span>`);
     }
-    if (others.length) parts.push(escapeHtml(others.join(', ')));
-    return parts.join('<br>') || '—';
+    if (others.length) parts.push(`<span class="cell-sub">${a.supervisorDiscordId ? '+ ' : ''}${escapeHtml(others.join(', '))}</span>`);
+    return parts.join('') || '<span class="cell-muted">—</span>';
   }
+
+  const STATUS_LABELS = { finished: ['Finalizada', 'badge-ok'], finished_timeout: ['Tempo esgotado', 'badge-warn'], in_progress: ['Em andamento', 'badge-warn'] };
+
+  function statusCell(a) {
+    if (a.deletedAt) {
+      return `<span class="badge badge-danger"><span class="badge-dot"></span>Excluída</span>${a.deleteReason ? `<span class="cell-sub">${escapeHtml(a.deleteReason)}</span>` : ''}`;
+    }
+    const [label, cls] = STATUS_LABELS[a.status] || [a.status, 'badge-neutral'];
+    return `<div class="status-stack"><span class="badge ${cls}"><span class="badge-dot"></span>${escapeHtml(label)}</span>${a.archivedAt ? '<span class="badge badge-neutral"><span class="badge-dot"></span>Arquivada</span>' : ''}</div>`;
+  }
+
+  function dateCell(d) {
+    if (!d) return '<span class="cell-muted">—</span>';
+    const dt = new Date(d);
+    return `<span class="cell-main">${dt.toLocaleDateString('pt-BR')}</span><span class="cell-sub">${dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>`;
+  }
+
+  // Ações da linha: as frequentes ficam à vista; as raras/perigosas ficam no
+  // menu "⋯". O menu usa position:fixed para não ser cortado pela rolagem
+  // horizontal da tabela.
+  function actionsCell(a) {
+    const finished = a.status === 'finished' || a.status === 'finished_timeout';
+    const deleted = Boolean(a.deletedAt);
+    const archived = Boolean(a.archivedAt);
+    const menu = [];
+    if (!deleted && finished) menu.push(`<button type="button" role="menuitem" data-archive="${a._id}" data-archived="${archived ? '1' : '0'}"><span class="menu-icon">🗄️</span><span>${archived ? 'Desarquivar' : 'Arquivar'}<small>${archived ? 'Volta a aparecer no bot' : 'Some do bot e da promoção'}</small></span></button>`);
+    if (!deleted && !a.discordUserId) menu.push(`<button type="button" role="menuitem" data-link-discord="${a._id}"><span class="menu-icon">🔗</span><span>Vincular Discord<small>Informar o ID do aluno</small></span></button>`);
+    if (!deleted) menu.push(`${menu.length ? '<hr>' : ''}<button type="button" role="menuitem" class="menu-danger" data-delete-result="${a._id}"><span class="menu-icon">🗑️</span><span>Excluir nota<small>Fica guardada para auditoria</small></span></button>`);
+    return `<div class="row-actions">
+      <button type="button" class="act-btn" data-detail="${a._id}">Detalhes</button>
+      ${!deleted && finished ? `<button type="button" class="act-btn act-accent" data-oral-score="${a._id}" title="Adicionar Pontos Prova Oral">${a.oralScore != null ? '✎ Prova oral' : '+ Prova oral'}</button>` : ''}
+      ${menu.length ? `<div class="row-menu-wrap">
+        <button type="button" class="act-btn act-icon" data-row-menu aria-haspopup="true" aria-expanded="false" title="Mais ações">⋯</button>
+        <div class="row-menu hidden" role="menu">${menu.join('')}</div>
+      </div>` : ''}
+    </div>`;
+  }
+
+  let openRowMenu = null;
+
+  function placeRowMenu(btn, menu) {
+    const r = btn.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) { closeRowMenus(); return; }
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    menu.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
+    menu.style.top = `${r.bottom + 6 + h > window.innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6}px`;
+  }
+
+  function closeRowMenus() {
+    openRowMenu = null;
+    document.querySelectorAll('.row-menu:not(.hidden)').forEach((m) => {
+      m.classList.add('hidden');
+      const btn = m.parentElement.querySelector('[data-row-menu]');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    });
+  }
+  document.addEventListener('click', (e) => { if (!e.target.closest('.row-menu-wrap')) closeRowMenus(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRowMenus(); });
+  window.addEventListener('scroll', () => { if (openRowMenu) placeRowMenu(openRowMenu.btn, openRowMenu.menu); }, true);
+  window.addEventListener('resize', closeRowMenus);
 
   function renderResultsTable() {
     const tbody = document.getElementById('results-tbody');
@@ -951,38 +1020,40 @@
     }
     rows = rows.slice().sort(RESULTS_SORTERS[sortKey] || RESULTS_SORTERS['date-desc']);
 
-    if (rows.length === 0) { tbody.innerHTML = `<tr><td colspan="11" class="list-empty">${resultsCache.length === 0 ? 'Nenhum resultado ainda.' : 'Nenhum resultado bate com esse filtro.'}</td></tr>`; return; }
+    if (rows.length === 0) { tbody.innerHTML = `<tr><td colspan="8" class="list-empty">${resultsCache.length === 0 ? 'Nenhum resultado ainda.' : 'Nenhum resultado bate com esse filtro.'}</td></tr>`; return; }
 
     // Sala + horário de início aparecem sempre, mesmo com nomes repetidos
     // entre tentativas — cada linha é uma tentativa de uma sala específica,
     // nunca se sobrescrevem entre si.
     tbody.innerHTML = rows.map((a) => {
-      const finished = a.status === 'finished' || a.status === 'finished_timeout';
       const deleted = Boolean(a.deletedAt);
       const archived = Boolean(a.archivedAt);
+      const done = a.status !== 'in_progress';
       return `
       <tr class="${deleted ? 'result-deleted' : archived ? 'result-archived' : ''}">
-        <td>${escapeHtml(a.roomId ? a.roomId.studentName : a.studentName)}${a.roomId ? '' : ' <span class="hint">(sala excluída)</span>'}</td>
-        <td>${discordCell(a)}</td>
-        <td>${escapeHtml((a.roomId ? a.roomId.roomLabel : a.roomLabel) || '—')}</td>
-        <td>${escapeHtml(a.examId ? a.examId.name : '')}</td>
+        <td class="col-student">${studentCell(a)}</td>
+        <td><span class="cell-main">${escapeHtml(a.examId ? a.examId.name : '—')}</span><span class="cell-sub">${escapeHtml((a.roomId ? a.roomId.roomLabel : a.roomLabel) || '')}</span></td>
         <td>${proctorCell(a)}</td>
         <td>${scoreCell(a)}</td>
-        <td>${a.status === 'in_progress' ? '—' : a.correctCount}</td>
-        <td>${a.status === 'in_progress' ? '—' : a.wrongCount}</td>
-        <td>${fmtDate(a.startedAt)}</td>
-        <td>${deleted
-          ? `<span class="badge badge-danger"><span class="badge-dot"></span>excluído</span><br><span class="hint">${escapeHtml(a.deleteReason || '')}</span>`
-          : `<span class="badge ${a.status === 'in_progress' ? 'badge-warn' : 'badge-ok'}"><span class="badge-dot"></span>${a.status}</span>${archived ? '<br><span class="badge badge-neutral"><span class="badge-dot"></span>arquivado</span>' : ''}`}</td>
-        <td class="result-actions">
-          <button class="small-btn secondary-btn" data-detail="${a._id}">Detalhes</button>
-          ${!deleted && finished ? `<button class="small-btn secondary-btn" data-oral-score="${a._id}">Adicionar Pontos Prova Oral</button>` : ''}
-          ${!deleted && finished ? `<button class="small-btn secondary-btn" data-archive="${a._id}" data-archived="${archived ? '1' : '0'}" title="${archived ? 'Volta a aparecer no bot' : 'Some da consulta do bot e da promoção (continua aqui no admin)'}">${archived ? 'Desarquivar' : 'Arquivar'}</button>` : ''}
-          ${!deleted && !a.discordUserId ? `<button class="small-btn secondary-btn" data-link-discord="${a._id}">Vincular Discord</button>` : ''}
-          ${!deleted ? `<button class="small-btn danger-btn" data-delete-result="${a._id}">Excluir nota</button>` : ''}
-        </td>
+        <td class="nowrap">${done ? `<span class="count-ok" title="Acertos">✓ ${a.correctCount}</span><span class="count-bad" title="Erros">✗ ${a.wrongCount}</span>` : '<span class="cell-muted">—</span>'}</td>
+        <td class="nowrap">${dateCell(a.startedAt)}</td>
+        <td>${statusCell(a)}</td>
+        <td class="result-actions">${actionsCell(a)}</td>
       </tr>`;
     }).join('');
+
+    tbody.querySelectorAll('[data-row-menu]').forEach((btn) => btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const menu = btn.parentElement.querySelector('.row-menu');
+      const wasOpen = !menu.classList.contains('hidden');
+      closeRowMenus();
+      if (wasOpen) return;
+      menu.classList.remove('hidden');
+      btn.setAttribute('aria-expanded', 'true');
+      openRowMenu = { btn, menu };
+      placeRowMenu(btn, menu);
+    }));
+    tbody.querySelectorAll('.row-menu button').forEach((b) => b.addEventListener('click', closeRowMenus));
 
     tbody.querySelectorAll('[data-detail]').forEach((btn) => btn.addEventListener('click', () => openDetail(btn.dataset.detail)));
     tbody.querySelectorAll('[data-oral-score]').forEach((btn) => btn.addEventListener('click', async () => {

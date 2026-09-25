@@ -465,7 +465,10 @@ router.get('/rooms', async (req, res) => {
   const rooms = await Room.find().populate('examId', 'name').sort({ createdAt: -1 }).lean();
   const withLive = rooms.map((room) => ({
     ...room,
-    proctorTokens: room.proctorTokens.map((t) => ({ _id: t._id, label: t.label, revokedAt: t.revokedAt, createdAt: t.createdAt })),
+    proctorTokens: room.proctorTokens.map((t) => ({
+      _id: t._id, label: t.label, revokedAt: t.revokedAt, createdAt: t.createdAt,
+      principal: Boolean(t.discordUserId && room.supervisor && t.discordUserId === room.supervisor.discordUserId),
+    })),
     live: liveState.summary(room._id.toString()),
   }));
   res.json({ success: true, rooms: withLive });

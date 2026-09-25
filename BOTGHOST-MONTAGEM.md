@@ -131,9 +131,12 @@ Em todo fluxo, o caminho "else" da primeira condição de status termina com um 
 |---|---|---|---|---|
 | `aluno` | "ID do Discord ou menção do aluno" | curto | sim | — |
 | `nome` | "Nome do aluno na prova (opcional)" | curto | não | máx 80 |
+| `fiscal` | "ID do Discord ou menção do FISCAL" | curto | sim | — |
 
-3. Depois do envio do formulário: **Send an API Request** `tcel_prep`: `POST …/rooms/prepare`, Body: identificação + `student` = `{tcel-gerar.aluno}`.
-4. Defina `tcel_name` = `{tcel-gerar.nome}` e `tcel_student` = `{tcel_prep.response.data.studentDiscordId}`.
+   Se o seu formulário usa **seleção de usuário** em vez de texto, tudo bem: o site aceita o ID ou a menção. Confira com **Test Request** que o valor chega como ID (17 a 20 dígitos).
+
+3. Depois do envio do formulário: **Send an API Request** `tcel_prep`: `POST …/rooms/prepare`, Body: identificação + `student` = `{tcel-gerar.aluno}` + `supervisorDiscordId` = `{tcel-gerar.fiscal}` (avisa na hora se o fiscal for o próprio aluno).
+4. Defina `tcel_name` = `{tcel-gerar.nome}`, `tcel_student` = `{tcel_prep.response.data.studentDiscordId}` e `tcel_supervisor` = `{tcel_prep.response.data.supervisorDiscordId}`.
 5. Condições sobre `tcel_prep`, **nesta ordem**:
    1. `{tcel_prep.status}` = `200` **e** `{tcel_prep.response.data.examChoiceRequired}` = `false` → vá para **B-CRIAR** com `examId` = `{tcel_prep.response.data.examId}`.
    2. `{tcel_prep.status}` = `200` (precisa escolher) → **Send or Edit a Message** privado "Escolha a prova", com um **Select Menu** (Basic/Text, **Single Select**, **Hide Replies** ligado) de **25 opções**. Cada opção N (1 a 25):
@@ -147,16 +150,21 @@ Em todo fluxo, o caminho "else" da primeira condição de status termina com um 
    4. `{tcel_prep.status}` = `400`, `403` ou `409` → privado `{tcel_prep.response.data.displayText}`.
    5. Senão → mensagem LOCAL.
 
-**B-CRIAR** (bloco repetido nos dois caminhos acima) — **Send an API Request** `tcel_room`: `POST …/rooms`, Body: identificação + `student` = `{BGVAR_tcel_student}` + `studentDisplayName` = `{BGVAR_tcel_name}` + `examId` (conforme o caminho) + `idempotencyKey` = `{interaction_id}`.
+**B-CRIAR** (bloco repetido nos dois caminhos acima) — **Send an API Request** `tcel_room`: `POST …/rooms`, Body: identificação + `student` = `{BGVAR_tcel_student}` + `studentDisplayName` = `{BGVAR_tcel_name}` + `supervisorDiscordId` = `{BGVAR_tcel_supervisor}` + `supervisorDisplayName` (opcional) + `studentAvatarUrl` (opcional) + `examId` (conforme o caminho) + `idempotencyKey` = `{interaction_id}`.
+
+- **Três pessoas diferentes:** `actorDiscordId` = `{user_id}` (quem clicou), `student` = aluno, `supervisorDiscordId` = fiscal do formulário. Nunca use `{user_id}` no lugar do fiscal.
+- `supervisorDisplayName`: nome do fiscal. Pode tentar `{user_displayName[{BGVAR_tcel_supervisor}]}`. Se o BotGhost não substituir, o site usa "Fiscal 1234".
+- `studentAvatarUrl`: foto do aluno para o embed de resultados. Pode tentar `{user_icon[{BGVAR_tcel_student}]}`. O site só guarda URL do CDN do Discord com o ID do aluno; se vier outra coisa, a sala é criada sem foto (`studentAvatarSaved = "false"`).
+- Todos os valores **entre aspas** no JSON (IDs são texto).
 
 | Resultado | O que fazer |
 |---|---|
-| `{tcel_room.status}` = `201` | [MSG-PRIVADA tcel_room]. Os links vão só aqui, para o operador. **Nunca** repasse o link de fiscal ao aluno. Mande ao aluno só o link do aluno, você mesmo, por DM. |
+| `{tcel_room.status}` = `201` | [MSG-PRIVADA tcel_room]. Os links vão só aqui, para o operador (a mensagem mostra quem é o fiscal). **Nunca** repasse o link de fiscal ao aluno nem cole em canal público. Mande o link do aluno ao aluno e o link de fiscal ao fiscal, por DM. |
 | `{tcel_room.response.code}` = `room_exists` | Igual ao item 3 acima (botão Regenerar) |
 | Outro status com resposta | Privado `{tcel_room.response.data.displayText}` |
 | Sem resposta | Mensagem LOCAL |
 
-**B-REGENERAR** — **Send an API Request** `tcel_regen`: `POST …/rooms/{BGVAR_tcel_room_id}/regenerate-links` (ligue "Replace variables in URL"), Body: identificação + `idempotencyKey` = `{interaction_id}`.
+**B-REGENERAR** — **Send an API Request** `tcel_regen`: `POST …/rooms/{BGVAR_tcel_room_id}/regenerate-links` (ligue "Replace variables in URL"), Body: identificação + `idempotencyKey` = `{interaction_id}`. O novo link de fiscal continua sendo do **fiscal escolhido na criação**, mesmo que outra pessoa clique em Regenerar.
 - 200 → [MSG-PRIVADA tcel_regen].
 - Senão → `{tcel_regen.response.data.displayText}` ou a mensagem LOCAL.
 
@@ -185,6 +193,15 @@ Em todo fluxo, o caminho "else" da primeira condição de status termina com um 
    3. Mostra o resultado. Prefira **editar a mensagem anterior** ("Edit a previous message from another action in the tree", com **Keep Components**) para os botões continuarem valendo. Se não der, responda com uma nova mensagem privada.
 
    O site limita a página: "Próxima" na última página devolve a última de novo.
+
+**Embed próprio, uma prova por página (opcional):** use `pageSize` = `1` e monte o embed com os campos separados (lista completa em BOTGHOST-API.md, seção 6.1), por exemplo:
+- Autor: `{tcel_res.response.data.resultStudentDisplayName}` · ícone `{tcel_res.response.data.resultStudentAvatarUrl}` (se o BotGhost recusar ícone vazio, deixe sem ícone)
+- Descrição: `Aluno: {tcel_res.response.data.resultStudentMention}`
+- Campo "Fiscal": `{tcel_res.response.data.resultSupervisorsText}`
+- Campos "Prova", "Prova oral" e "Total": `resultExamScore`, `resultOralScore`, `resultTotalScore` (ou só `resultScoreText`)
+- Rodapé: `Página {tcel_res.response.data.pageNumber}/{tcel_res.response.data.pages}`
+
+Esses campos mudam junto com a página. Não copie para variáveis personalizadas.
 
 ---
 
@@ -339,3 +356,5 @@ Nada disto foi testado num BotGhost real: o site foi testado com um BotGhost **s
 8. **Quebras de linha** vindas de variáveis no Content/Description nativos.
 9. **Editar a mensagem anterior** na paginação de resultados.
 10. **Prova ponta a ponta de embed no Discord real:** feita só com dados simulados (prévia e teste automatizado). Use **Enviar teste** na aba Mensagens do Bot com o canal de teste configurado.
+11. **Fiscal no formulário:** o valor do campo `fiscal` (texto ou seleção de usuário) chega ao site como ID ou menção. Confira `{tcel_room.response.data.supervisorDiscordId}` no Test Request.
+12. **Nome e foto por alvo:** `{user_displayName[...]}` e `{user_icon[...]}` com outra variável como alvo (a documentação do BotGhost mostra `{user_icon[{bot_id}]}`). Se não funcionar com variável de formulário, a sala sai com "Fiscal 1234" e sem foto; nada quebra.

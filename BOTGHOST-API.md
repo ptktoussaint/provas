@@ -137,25 +137,35 @@ Provas aptas (ativas e com questões ativas).
 
 ### `POST /rooms/prepare` (não cria nada)
 Interpreta o ID ou menção digitada e avisa se precisa escolher a prova ou se já existe sala aberta. Também serve para "acordar" o site.
-- **Body:** identificação + `student` (ID ou `<@ID>`) + `examId` (opcional)
-- **200 `ready`:** `studentDiscordId`, `studentMention`, `examChoiceRequired`, `examId`, `examName`, `examListText`, `opt1…opt25*`
-- **409 `room_exists`:** `roomId`, `roomLabel`, `roomCode`, `canRegenerate = "true"`
-- **409 `no_eligible_exam` / `exam_not_eligible`**, **400 `invalid_user`**
+- **Body:** identificação + `student` (ID ou `<@ID>`) + `supervisorDiscordId` (opcional, ID ou `<@ID>` do fiscal) + `examId` (opcional)
+- **200 `ready`:** `studentDiscordId`, `studentMention`, `supervisorDiscordId`, `supervisorMention`, `examChoiceRequired`, `examId`, `examName`, `examListText`, `opt1…opt25*`
+- **409 `room_exists`:** `roomId`, `roomLabel`, `roomCode`, `supervisorDiscordId` (fiscal da sala aberta, se houver), `canRegenerate = "true"`
+- **409 `no_eligible_exam` / `exam_not_eligible`**, **400 `invalid_user`**, **400 `supervisor_is_student`** (o fiscal escolhido é o próprio aluno)
 
 ### `POST /rooms` (cria a sala)
-- **Body:** identificação + `student` + `studentDisplayName` (opcional; ajuste do nome que aparece na prova) + `examId` (opcional) + `idempotencyKey = {interaction_id}`
-- **201 `room_created`:** `roomId`, `roomLabel`, `roomCode`, `examName`, `studentDiscordId`, **`studentUrl`**, **`supervisorUrl`**, `linksAvailable = "true"`, e a mensagem privada pronta (`data.native.*`, modelo "Sala criada").
-  - `studentUrl` → link do **aluno**. `supervisorUrl` → link de **fiscal** do operador que clicou.
-  - **Mostre só em resposta privada ao operador. Nunca mande o link de fiscal ao aluno.**
+- **Body:**
+  - identificação (`guildId`, `actorDiscordId`, `actorDisplayName`, `channelId`) — **quem clicou** (operador)
+  - `student` — **aluno** (ID ou `<@ID>`)
+  - `studentDisplayName` (opcional) — nome que aparece na prova
+  - `supervisorDiscordId` (opcional) — **fiscal** escolhido no formulário (ID ou `<@ID>`, sempre entre aspas)
+  - `supervisorDisplayName` (opcional) — nome do fiscal; vazio ou variável não substituída → `Fiscal 1234` (final do ID)
+  - `studentAvatarUrl` (opcional) — foto do aluno, ver "Foto do aluno" abaixo
+  - `examId` (opcional) + `idempotencyKey = {interaction_id}`
+- **Três papéis diferentes:** `actorDiscordId` (quem clicou), `student` (aluno) e `supervisorDiscordId` (fiscal). Podem ser três pessoas. O operador pode ser o próprio fiscal; o aluno não (**400 `supervisor_is_student`**). O fiscal **não** precisa estar na lista de operadores: ele não chama a API, só usa o link.
+- **201 `room_created`:** `roomId`, `roomLabel`, `roomCode`, `examName`, `studentDiscordId`, `studentAvatarSaved` (`"true"`/`"false"`), `supervisorDiscordId`, `supervisorDisplayName`, `supervisorMention`, `supervisorSelected` (`"true"` = fiscal escolhido no formulário), **`studentUrl`**, **`supervisorUrl`**, `linksAvailable = "true"`, e a mensagem privada pronta (`data.native.*`, modelo "Sala criada", com o campo **Fiscal**).
+  - `studentUrl` → link do **aluno**. `supervisorUrl` → link de **fiscal** do fiscal escolhido. Sem `supervisorDiscordId` (fluxo antigo), o link de fiscal continua sendo do operador que clicou e `supervisorDiscordId` volta vazio.
+  - O vínculo fica gravado na sala e é copiado para a tentativa quando o aluno começa a prova: continua no resultado mesmo depois de a sala ser encerrada ou excluída. Cada sala (e cada tentativa) guarda o seu fiscal: a segunda prova do mesmo aluno tem o fiscal escolhido para ela.
+  - **Mostre só em resposta privada ao operador.** O site nunca publica links em canal. Nunca mande o link de fiscal ao aluno; repasse ao fiscal em privado.
   - Abrir o link não prova identidade: quem tiver o link entra.
+- **Foto do aluno (`studentAvatarUrl`):** o site **não tem** token do Discord (e não deve ter), então não consegue buscar a foto sozinho. O BotGhost pode mandar a URL na criação da sala (variável `{user_icon[...]}` do BotGhost, com o ID do aluno como alvo). O site só guarda URL **HTTPS** do CDN do Discord (`cdn.discordapp.com` ou `media.discordapp.net`) cujo caminho tem o **ID do próprio aluno** (ou o avatar padrão `embed/avatars/N.png`). Qualquer outra coisa é descartada (`studentAvatarSaved = "false"`), sem impedir a sala. Sem foto válida, `resultStudentAvatarUrl` volta vazio. Se o aluno trocar a foto depois, a URL antiga pode parar de abrir.
 - **Repetição (mesma `idempotencyKey`):** 200 `room_already_created`, `replayed = "true"`, `linksAvailable = "false"`. **Sem links**: o site não guarda links para reexibir. Para links novos, use regenerar.
 - **409 `room_exists`:** já há sala aberta para esse aluno nessa prova. Ofereça **Regenerar links** com `roomId`.
 - **422 `exam_choice_required`:** várias provas e nenhuma padrão. A resposta traz as opções `opt*`; mostre o menu e chame de novo com `examId`.
 
 ### `POST /rooms/{roomId}/regenerate-links`
-Gera **novos** links: um do aluno e um de fiscal para quem clicou. **Os anteriores param de funcionar.** Quem já está na prova não cai. Não cria sala nova.
+Gera **novos** links: um do aluno e um de fiscal **para o fiscal escolhido na criação da sala** (quem clicou em Regenerar não vira fiscal). Em salas criadas sem fiscal (fluxo antigo), o link de fiscal é de quem clicou, como antes. **Os anteriores param de funcionar.** Quem já está na prova não cai. Não cria sala nova.
 - **Body:** identificação + `idempotencyKey = {interaction_id}`
-- **200 `links_regenerated`:** `studentUrl`, `supervisorUrl`, mensagem pronta
+- **200 `links_regenerated`:** `studentUrl`, `supervisorUrl`, `supervisorDiscordId`, `supervisorDisplayName`, `supervisorMention`, `supervisorSelected`, mensagem pronta
 - **409 `regenerate_too_soon`:** acabou de gerar. Use os links já mostrados.
 - **409 `room_closed`**, **404 `room_not_found`**
 
@@ -166,9 +176,89 @@ Gera **novos** links: um do aluno e um de fiscal para quem clicou. **Os anterior
 Lê o banco **na hora**. Mensagens já mostradas no Discord são "fotos" do momento e não se atualizam sozinhas: use o botão "Atualizar".
 - **URL Params:** identificação + (opcionais) `student` (ID/menção), `examId`, `from` e `to` (`AAAA-MM-DD` ou `DD/MM/AAAA`, horário de Brasília), `sort` (`date-desc` padrão, `date-asc`, `score-desc`, `score-asc`), `page` (começa em 0), `pageSize` (1–25, padrão 10)
 - **Resposta (`results` ou `results_empty`):** `total`, `page`, `pageNumber`, `pages`, `hasPrevious`, `hasNext`, `previousPage`, `nextPage`, `filterText`, `displayText`, `items` (lista resumida) e a mensagem pronta (modelos "Consulta de resultados" / "Lista vazia").
-  - Em cada item: `score` (nota final), `writtenScore` (prova escrita), `oralScore` e `hasOral`. Com prova oral, a linha mostra "Prova (X) + Prova Oral (Y) = Z".
+  - Em cada item: `score` (nota final), `writtenScore` (prova escrita), `oralScore` (número ou vazio) e `hasOral`. Com prova oral, a linha mostra "Prova (X) + Prova Oral (Y) = Z".
+  - Também em cada item (texto pronto): `studentAvatarUrl`, `supervisorDiscordId`, `supervisorDisplayName`, `supervisorMention`, `supervisorsText`, `examScore`, `examMaxScore`, `oralScoreText`, `oralPending`, `totalScore`, `scoreText`.
 - Resultados **arquivados** pelo admin não aparecem aqui nem nos candidatos à promoção.
 - Se a página não couber numa mensagem do Discord, o site devolve menos itens por página. Ele **nunca corta** uma linha no meio.
+- Nenhum link ou token de prova aparece em `/results`.
+
+### 6.1 Campos separados da prova da página (para montar o seu embed)
+
+Sempre presentes em `response.data`. Preenchidos **só quando a página tem exatamente uma prova** (ex.: `pageSize = 1`); com 0 ou várias provas na página, ficam vazios e `resultSingle = "false"` (cada item de `items` tem os seus). Como vêm da própria prova da página, mudam junto em **Anterior / Próxima / Atualizar**: nunca são de outra página nem de quem clicou. Use direto `{tcel_res.response.data.resultX}`; **não** guarde em variável personalizada para reaproveitar em outra página.
+
+| Campo | O que é |
+|---|---|
+| `resultSingle` | `"true"` quando a página tem exatamente uma prova |
+| `resultAttemptId`, `resultExamName`, `resultFinishedAt` | Tentativa, nome da prova, data de término (DD/MM/AAAA) |
+| `resultStudentDiscordId` | ID do aluno (vazio se o resultado não está vinculado ao Discord) |
+| `resultStudentDisplayName` | Nome do aluno na prova |
+| `resultStudentMention` | `<@ID>` do aluno (vazio se sem vínculo) |
+| `resultStudentAvatarUrl` | Foto do aluno (URL HTTPS) enviada na criação da sala; vazio se não houver |
+| `resultSupervisorDiscordId` | ID do fiscal principal (o escolhido no formulário); vazio em resultados antigos |
+| `resultSupervisorDisplayName` | Nome do fiscal principal. Em resultados antigos: o(s) nome(s) de fiscal registrado(s), sem ID |
+| `resultSupervisorMention` | `<@ID>` do fiscal principal; vazio em resultados antigos |
+| `resultSupervisorsText` | Todos os fiscais, um por linha: `⭐ <@ID> — Nome (principal, escolhido no Discord)` e depois `• Nome` de cada outro fiscal que se conectou |
+| `resultExamScore` | Nota da prova (escrita) |
+| `resultExamMaxScore` | Pontuação máxima da prova (questões × pontos por questão) |
+| `resultOralScore` | Nota da prova oral, ou `Pendente` |
+| `resultOralPending` | `"true"` enquanto a oral não foi lançada |
+| `resultTotalScore` | Prova + oral, ou `Pendente` enquanto a oral não foi lançada |
+| `resultScoreText` | `Prova: X \| Prova oral: Y \| Total: Z` |
+
+**Regras das notas (como o site calcula hoje):**
+- **Prova:** acertos × pontos por questão (definidos na prova, no admin). Máximo = questões sorteadas × pontos por questão (ex.: 5 × 20 = 100). Em resultados antigos que tiveram a nota ajustada pelo admin, vale a ajustada.
+- **Prova oral:** lançada no admin (Resultados → "Adicionar Pontos Prova Oral"). Não negativa, até 2 casas decimais, **sem teto**. Sem lançamento = **Pendente** (nunca zero).
+- **Total:** soma simples prova + oral, arredondada em 2 casas. Não há peso nem porcentagem. Pode passar da máxima da prova. Enquanto a oral estiver pendente, o total é **Pendente**.
+- Números em formato brasileiro (`12,5`). Para números crus use `items[0].writtenScore`, `items[0].oralScore` e `items[0].score`.
+- O `displayText` e a ordenação por nota continuam como antes (sem oral, usam a nota da prova).
+
+**Exemplo — oral pendente** (`GET /results?…&pageSize=1`, trechos):
+```json
+{
+  "ok": true,
+  "code": "results",
+  "data": {
+    "total": "1", "pageNumber": "1", "pages": "1", "hasNext": "false",
+    "displayText": "Todos os resultados não excluídos.\n\n**1.** <@700000000000000101> · Recruta Silva — **80/100** · Prova TCEL · 25/09/2026 · tentativa `3e31bb` · não promovido\n\nPágina 1/1",
+    "items": [{ "attemptId": "6ab609ed158874bbe93e31bb", "score": 80, "writtenScore": 80, "oralScore": "", "hasOral": "false", "…": "…" }],
+    "resultSingle": "true",
+    "resultAttemptId": "6ab609ed158874bbe93e31bb",
+    "resultExamName": "Prova TCEL",
+    "resultFinishedAt": "25/09/2026",
+    "resultStudentDiscordId": "700000000000000101",
+    "resultStudentDisplayName": "Recruta Silva",
+    "resultStudentMention": "<@700000000000000101>",
+    "resultStudentAvatarUrl": "https://cdn.discordapp.com/avatars/700000000000000101/0123456789abcdef0123456789abcdef.png?size=256",
+    "resultSupervisorDiscordId": "700000000000000202",
+    "resultSupervisorDisplayName": "Cabo Souza",
+    "resultSupervisorMention": "<@700000000000000202>",
+    "resultSupervisorsText": "⭐ <@700000000000000202> — Cabo Souza (principal, escolhido no Discord)",
+    "resultExamScore": "80",
+    "resultExamMaxScore": "100",
+    "resultOralScore": "Pendente",
+    "resultOralPending": "true",
+    "resultTotalScore": "Pendente",
+    "resultScoreText": "Prova: 80 | Prova oral: Pendente | Total: Pendente"
+  }
+}
+```
+
+**Exemplo — oral lançada (12,5)**, mesma prova depois do lançamento no admin (só o que muda):
+```json
+{
+  "data": {
+    "displayText": "Todos os resultados não excluídos.\n\n**1.** <@700000000000000101> · Recruta Silva — Prova (80) + Prova Oral (12,5) = **92,5** · Prova TCEL · 25/09/2026 · tentativa `3e31bb` · não promovido\n\nPágina 1/1",
+    "items": [{ "attemptId": "6ab609ed158874bbe93e31bb", "score": 92.5, "writtenScore": 80, "oralScore": 12.5, "hasOral": "true", "…": "…" }],
+    "resultExamScore": "80",
+    "resultOralScore": "12,5",
+    "resultOralPending": "false",
+    "resultTotalScore": "92,5",
+    "resultScoreText": "Prova: 80 | Prova oral: 12,5 | Total: 92,5"
+  }
+}
+```
+
+**Resultado antigo** (antes desta atualização, sem fiscal do Discord): `resultSupervisorDiscordId = ""`, `resultSupervisorMention = ""`, `resultSupervisorDisplayName = "Sgt Antigo"` (nome registrado), `resultSupervisorsText = "• Sgt Antigo"`. O site **não** atribui um ID por aproximação.
 
 ---
 

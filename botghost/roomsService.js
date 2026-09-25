@@ -7,7 +7,7 @@ const { generateToken, hashToken } = require('../lib/tokens');
 const { logSecurityEvent } = require('../lib/securityLog');
 const { ApiError, boolText } = require('./http');
 const { baseContext, renderForApi } = require('./messages');
-const { userText, mention, truncate } = require('./format');
+const { userText, mention, truncate, displayName } = require('./format');
 
 // Salas criadas a pedido do BotGhost, pelos MESMOS serviços do painel admin
 // (lib/rooms.js). O ID do aluno é o destinatário cadastrado pelo operador —
@@ -71,13 +71,15 @@ function openRoomError(room) {
     roomLabel: room.roomLabel,
     roomCode: roomCode(room),
     roomStatus: room.status,
+    supervisorDiscordId: (room.supervisor && room.supervisor.discordUserId) || '',
     canRegenerate: 'true',
   });
 }
 
 // Sem efeito colateral: interpreta ID/menção, escolhe a prova e avisa se já
 // existe sala aberta. Serve também para "acordar" o site antes do resto.
-async function prepare(actor, { studentDiscordId, examId }) {
+async function prepare(actor, { studentDiscordId, supervisorDiscordId = null, examId }) {
+  checkSupervisor(studentDiscordId, supervisorDiscordId);
   const exams = await eligibleExams();
   const choice = resolveExam(examId, actor.config.defaultExamId, exams);
   if (choice.error === 'no_eligible_exam') throw new ApiError(409, 'no_eligible_exam', 'Não há prova apta no site (ativa e com questões ativas). Nenhuma sala foi criada.');
@@ -88,6 +90,8 @@ async function prepare(actor, { studentDiscordId, examId }) {
   const data = {
     studentDiscordId,
     studentMention: mention(studentDiscordId),
+    supervisorDiscordId: supervisorDiscordId || '',
+    supervisorMention: supervisorDiscordId ? mention(supervisorDiscordId) : '',
     examChoiceRequired: boolText(Boolean(choice.choiceRequired)),
     examId: choice.exam ? String(choice.exam._id) : '',
     examName: choice.exam ? choice.exam.name : '',
@@ -100,6 +104,33 @@ async function prepare(actor, { studentDiscordId, examId }) {
     if (open) throw openRoomError(open);
   }
   return data;
+}
+
+// Aluno, fiscal e operador são papéis diferentes. O operador pode ser o
+// próprio fiscal; o aluno não pode fiscalizar a própria prova.
+function checkSupervisor(studentDiscordId, supervisorDiscordId) {
+  if (supervisorDiscordId && supervisorDiscordId === studentDiscordId) {
+    throw new ApiError(400, 'supervisor_is_student', 'O fiscal não pode ser o próprio aluno. Escolha outra pessoa como fiscal.', { field: 'supervisorDiscordId' });
+  }
+}
+
+// Dono do link de fiscal da sala: o fiscal escolhido no formulário; em
+// salas criadas sem fiscal (fluxo antigo), o operador — como era antes.
+function linkOwner(room, actor) {
+  if (room.supervisor && room.supervisor.discordUserId) {
+    return { discordUserId: room.supervisor.discordUserId, label: room.supervisor.displayName || `Fiscal ${room.supervisor.discordUserId.slice(-4)}`, selected: true };
+  }
+  return { discordUserId: actor.actorDiscordId, label: actor.actorDisplayName, selected: false };
+}
+
+function supervisorData(room) {
+  const sup = room.supervisor && room.supervisor.discordUserId ? room.supervisor : null;
+  return {
+    supervisorDiscordId: sup ? sup.discordUserId : '',
+    supervisorDisplayName: sup ? (sup.displayName || '') : '',
+    supervisorMention: sup ? mention(sup.discordUserId) : '',
+    supervisorSelected: boolText(Boolean(sup)),
+  };
 }
 
 // Evita duas salas abertas para a mesma pessoa/prova quando dois pedidos
@@ -118,8 +149,11 @@ async function withLock(key, fn) {
   }
 }
 
-async function roomMessage(actor, room, exam, studentId, studentUrl, supervisorUrl) {
+async function roomMessage(actor, room, exam, studentId, studentUrl, supervisorUrl, owner) {
   return renderForApi('room_created', {
+    'fiscal.mencao': mention(owner.discordUserId),
+    'fiscal.nome': userText(owner.label, 80),
+    'fiscal.discordId': owner.discordUserId,
     ...baseContext(actor),
     'aluno.mencao': mention(studentId),
     'aluno.nome': userText(room.studentName, 80),
@@ -133,7 +167,10 @@ async function roomMessage(actor, room, exam, studentId, studentUrl, supervisorU
   });
 }
 
-async function create(actor, { studentDiscordId, studentDisplayName, examId, idempotencyKey, publicBaseUrl }) {
+async function create(actor, {
+  studentDiscordId, studentDisplayName, supervisorDiscordId = null, supervisorDisplayName = '', studentAvatarUrl = '', examId, idempotencyKey, publicBaseUrl,
+}) {
+  checkSupervisor(studentDiscordId, supervisorDiscordId);
   return withLock(`${actor.guildId}:${studentDiscordId}`, async () => {
     const exams = await eligibleExams();
     const choice = resolveExam(examId, actor.config.defaultExamId, exams);
@@ -146,7 +183,10 @@ async function create(actor, { studentDiscordId, studentDisplayName, examId, ide
 
     const requestId = `bg:${crypto.createHash('sha256').update(`${actor.actorDiscordId}:${idempotencyKey}`).digest('hex').slice(0, 32)}`;
     // Sem nome digitado: final do ID, para diferenciar as salas no admin.
-    const name = String(studentDisplayName || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 80) || `Aluno ${studentDiscordId.slice(-4)}`;
+    const name = displayName(studentDisplayName) || `Aluno ${studentDiscordId.slice(-4)}`;
+    const supervisor = supervisorDiscordId
+      ? { discordUserId: supervisorDiscordId, displayName: displayName(supervisorDisplayName) || `Fiscal ${supervisorDiscordId.slice(-4)}` }
+      : null;
     let created;
     try {
       created = await createRoom({
@@ -154,8 +194,14 @@ async function create(actor, { studentDiscordId, studentDisplayName, examId, ide
         roomLabel: `Discord ${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
         studentName: name,
         createdVia: 'discord',
-        discord: { guildId: actor.guildId, userId: studentDiscordId, operatorId: actor.actorDiscordId, operatorName: actor.actorDisplayName, requestId },
-        initialProctor: { label: actor.actorDisplayName, discordUserId: actor.actorDiscordId },
+        discord: {
+          guildId: actor.guildId, userId: studentDiscordId, operatorId: actor.actorDiscordId, operatorName: actor.actorDisplayName, requestId, supervisor, studentAvatarUrl: studentAvatarUrl || null,
+        },
+        // Link de fiscal do fiscal escolhido (sem fiscal no pedido: do
+        // operador, como no fluxo antigo).
+        initialProctor: supervisor
+          ? { label: supervisor.displayName, discordUserId: supervisor.discordUserId }
+          : { label: actor.actorDisplayName, discordUserId: actor.actorDiscordId },
       });
     } catch (err) {
       if (err && err.code === 11000) throw new ApiError(409, 'room_already_created', 'Esta solicitação já criou uma sala. Use regenerar links se precisar.');
@@ -164,9 +210,10 @@ async function create(actor, { studentDiscordId, studentDisplayName, examId, ide
     const studentUrl = `${publicBaseUrl}${created.studentLink}`;
     const supervisorUrl = `${publicBaseUrl}${created.proctorLink}`;
     await logSecurityEvent('botghost_room_created', {
-      meta: { roomId: String(created.room._id), examId: String(choice.exam._id), studentDiscordId, operatorId: actor.actorDiscordId },
+      meta: { roomId: String(created.room._id), examId: String(choice.exam._id), studentDiscordId, supervisorDiscordId, operatorId: actor.actorDiscordId },
     });
-    const msg = await roomMessage(actor, created.room, choice.exam, studentDiscordId, studentUrl, supervisorUrl);
+    const owner = linkOwner(created.room, actor);
+    const msg = await roomMessage(actor, created.room, choice.exam, studentDiscordId, studentUrl, supervisorUrl, owner);
     const safe = {
       roomId: String(created.room._id),
       roomLabel: created.room.roomLabel,
@@ -174,6 +221,8 @@ async function create(actor, { studentDiscordId, studentDisplayName, examId, ide
       examId: String(choice.exam._id),
       examName: choice.exam.name,
       studentDiscordId,
+      studentAvatarSaved: boolText(Boolean(studentAvatarUrl)),
+      ...supervisorData(created.room),
     };
     return {
       status: 201,
@@ -188,26 +237,28 @@ async function create(actor, { studentDiscordId, studentDisplayName, examId, ide
 }
 
 // Regeneração EXPLÍCITA: novo link do aluno e novo link de fiscal para o
-// operador; os anteriores (aluno + fiscal deste operador) param de
-// funcionar. Quem já está na prova não cai.
+// fiscal escolhido na criação (salas antigas sem fiscal: o operador); os
+// anteriores (aluno + fiscal desse dono) param de funcionar. Quem clicou
+// nunca substitui o fiscal. Quem já está na prova não cai.
 async function regenerate(actor, roomId, { publicBaseUrl }) {
   const room = await Room.findOne({ _id: roomId, discordGuildId: actor.guildId });
   if (!room) throw new ApiError(404, 'room_not_found', 'Sala não encontrada (ou não foi criada pela integração).');
   if (room.status === 'closed') throw new ApiError(409, 'room_closed', 'Esta sala foi encerrada — gere uma prova nova.');
   // Clique duplo gera dois pedidos distintos: o segundo invalidaria os links
   // que o primeiro acabou de mostrar. Pequena carência evita isso.
-  const recent = room.proctorTokens.find((t) => t.discordUserId === actor.actorDiscordId && !t.revokedAt && Date.now() - new Date(t.createdAt).getTime() < 15000);
+  const owner = linkOwner(room, actor);
+  const recent = room.proctorTokens.find((t) => t.discordUserId === owner.discordUserId && !t.revokedAt && Date.now() - new Date(t.createdAt).getTime() < 15000);
   if (recent) throw new ApiError(409, 'regenerate_too_soon', 'Os links desta sala acabaram de ser gerados. Use os que já apareceram; se precisar mesmo, tente de novo em alguns segundos.');
   const raw = generateToken();
   room.studentTokenHash = hashToken(raw);
   await room.save();
-  const { proctorLink } = await addProctorLink(room._id, { label: actor.actorDisplayName, discordUserId: actor.actorDiscordId, revokePreviousForDiscordUser: true });
+  const { proctorLink } = await addProctorLink(room._id, { label: owner.label, discordUserId: owner.discordUserId, revokePreviousForDiscordUser: true });
   const exam = await Exam.findById(room.examId).select('name durationMinutes').lean();
   const studentUrl = `${publicBaseUrl}/aluno/${raw}`;
   const supervisorUrl = `${publicBaseUrl}${proctorLink}`;
-  await logSecurityEvent('botghost_links_regenerated', { meta: { roomId: String(room._id), operatorId: actor.actorDiscordId } });
-  const msg = await roomMessage(actor, room, exam, room.discordUserId, studentUrl, supervisorUrl);
-  const safe = { roomId: String(room._id), roomLabel: room.roomLabel, roomCode: roomCode(room), studentDiscordId: room.discordUserId };
+  await logSecurityEvent('botghost_links_regenerated', { meta: { roomId: String(room._id), operatorId: actor.actorDiscordId, supervisorDiscordId: owner.selected ? owner.discordUserId : null } });
+  const msg = await roomMessage(actor, room, exam, room.discordUserId, studentUrl, supervisorUrl, owner);
+  const safe = { roomId: String(room._id), roomLabel: room.roomLabel, roomCode: roomCode(room), studentDiscordId: room.discordUserId, ...supervisorData(room) };
   return {
     status: 200,
     code: 'links_regenerated',

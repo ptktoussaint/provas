@@ -90,6 +90,12 @@ const examAttemptSchema = new mongoose.Schema({
   // mesmo que a sala seja excluída depois. Nunca vem do navegador do aluno.
   discordGuildId: { type: String, default: null },
   discordUserId: { type: String, default: null },
+  // Fiscal principal e foto do aluno, copiados da sala no início da
+  // tentativa (cada tentativa guarda os seus — segunda prova do mesmo aluno
+  // numa sala nova tem o seu próprio fiscal). Tentativas antigas: null.
+  supervisorDiscordId: { type: String, default: null },
+  supervisorDisplayName: { type: String, default: null },
+  studentAvatarUrl: { type: String, default: null },
   // Pontuação máxima congelada no momento da prova (questões sorteadas ×
   // pontos por questão). Tentativas antigas sem este campo usam o mesmo
   // cálculo a partir do snapshot — ver lib/results.js maxScoreOf().

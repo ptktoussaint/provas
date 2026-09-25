@@ -6,6 +6,7 @@ const {
   ApiError, reply, wrap, reqSnowflake, reqUserInput, optText, reqText, optObjectId, reqObjectId, optInt, csvList, boolText,
 } = require('./http');
 const { isSnowflake, parseUserIdInput } = require('../lib/discordIds');
+const { avatarUrl } = require('./format');
 const { deniedMessage, baseContext, renderForApi } = require('./messages');
 const configStore = require('./configStore');
 const rooms = require('./roomsService');
@@ -140,11 +141,20 @@ function createIntegrationRouter({ getEnv, getPublicBaseUrl, onNotificationCreat
     });
   }));
 
+  // Fiscal escolhido no formulário (opcional: sem ele, a sala sai como no
+  // fluxo antigo, com o link de fiscal do operador). Aceita ID ou menção.
+  function optSupervisor(body) {
+    const raw = body ? body.supervisorDiscordId : undefined;
+    if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+    return reqUserInput(body, 'supervisorDiscordId', 'Fiscal');
+  }
+
   // Sem efeito colateral: interpreta o ID/menção digitado e avisa sala aberta.
   router.post('/rooms/prepare', route(ACTIONS.generate, async (req, res, actor) => {
     const studentDiscordId = reqUserInput(req.body, 'student', 'Aluno');
+    const supervisorDiscordId = optSupervisor(req.body);
     const examId = optObjectId(req.body, 'examId', 'Prova');
-    const data = await rooms.prepare(actor, { studentDiscordId, examId });
+    const data = await rooms.prepare(actor, { studentDiscordId, supervisorDiscordId, examId });
     return reply(res, 200, 'ready', 'Pronto para criar a sala.', data);
   }));
 
@@ -152,12 +162,23 @@ function createIntegrationRouter({ getEnv, getPublicBaseUrl, onNotificationCreat
     const studentDiscordId = reqUserInput(req.body, 'student', 'Aluno');
     const examId = optObjectId(req.body, 'examId', 'Prova');
     const studentDisplayName = optText(req.body, 'studentDisplayName', 80);
+    const supervisorDiscordId = optSupervisor(req.body);
+    const supervisorDisplayName = supervisorDiscordId ? optText(req.body, 'supervisorDisplayName', 80) : '';
+    // Foto inválida/ausente não impede a sala: só não é guardada.
+    const studentAvatarUrl = avatarUrl(optText(req.body, 'studentAvatarUrl', 400), studentDiscordId);
+    // Campos novos só entram no conteúdo comparado quando enviados: um
+    // pedido repetido do fluxo antigo continua batendo com o original.
+    const payload = { studentDiscordId, examId, studentDisplayName };
+    if (supervisorDiscordId) Object.assign(payload, { supervisorDiscordId, supervisorDisplayName });
+    if (studentAvatarUrl) payload.studentAvatarUrl = studentAvatarUrl;
     const out = await idempotent({
       req,
       route: 'rooms',
       actorDiscordId: actor.actorDiscordId,
-      payload: { studentDiscordId, examId, studentDisplayName },
-      run: () => rooms.create(actor, { studentDiscordId, studentDisplayName, examId, idempotencyKey: req.body.idempotencyKey, publicBaseUrl: getPublicBaseUrl() }),
+      payload,
+      run: () => rooms.create(actor, {
+        studentDiscordId, studentDisplayName, supervisorDiscordId, supervisorDisplayName, studentAvatarUrl, examId, idempotencyKey: req.body.idempotencyKey, publicBaseUrl: getPublicBaseUrl(),
+      }),
     });
     return send(res, out);
   }));

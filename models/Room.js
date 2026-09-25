@@ -34,6 +34,16 @@ const roomSchema = new mongoose.Schema({
     id: { type: String, default: null },
     name: { type: String, default: null },
   },
+  // Fiscal principal escolhido no formulário do Discord — pode ser outra
+  // pessoa que não o operador (quem clicou) nem o aluno. O link de fiscal
+  // gerado/regenerado pela integração é sempre dele. Salas antigas: null.
+  supervisor: {
+    discordUserId: { type: String, default: null },
+    displayName: { type: String, default: null },
+  },
+  // Foto do aluno enviada pelo BotGhost na criação (URL do CDN do Discord,
+  // validada). Vazio quando não enviada — nunca inventada pelo site.
+  studentAvatarUrl: { type: String, default: null },
   // Pedido de geração que originou a sala — índice único garante que um
   // clique repetido/reenvio da interação nunca cria duas salas.
   discordRequestId: { type: String, default: undefined },

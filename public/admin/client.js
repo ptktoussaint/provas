@@ -810,7 +810,7 @@
           <strong>${escapeHtml(r.roomLabel)} — ${escapeHtml(r.studentName)}</strong>
           <span class="badge badge-neutral"><span class="badge-dot"></span>${r.status}</span>
         </div>
-        <div class="room-item-meta">${escapeHtml(r.examId && r.examId.name ? r.examId.name : '')} · ${activeTokens.length} fiscal(is) ativo(s)</div>
+        <div class="room-item-meta">${escapeHtml(r.examId && r.examId.name ? r.examId.name : '')} · ${activeTokens.length} fiscal(is) ativo(s)${r.supervisor && r.supervisor.discordUserId ? ` · fiscal principal (Discord): ${escapeHtml(r.supervisor.displayName || '')} <code>${escapeHtml(r.supervisor.discordUserId)}</code>` : ''}</div>
         <div class="room-item-actions">
           <button class="small-btn secondary-btn" data-get-student-link="${r._id}">🔗 Link do aluno</button>
           <button class="small-btn secondary-btn" data-add-proctor="${r._id}">+ Link do fiscal</button>
@@ -818,7 +818,7 @@
           <button class="small-btn danger-btn" data-delete-room="${r._id}" title="Excluir sala (a nota fica salva em Resultados)">✕ Excluir sala</button>
         </div>
         <div class="room-item-actions" data-proctor-list>
-          ${activeTokens.map((t) => `<span class="badge badge-ok"><span class="badge-dot"></span>${escapeHtml(t.label)}</span><button class="small-btn secondary-btn" data-revoke-token="${r._id}:${t._id}" title="Excluir este link">✕</button>`).join('')}
+          ${activeTokens.map((t) => `<span class="badge badge-ok"${t.principal ? ' title="Fiscal principal escolhido no Discord"' : ''}><span class="badge-dot"></span>${t.principal ? '⭐ ' : ''}${escapeHtml(t.label)}</span><button class="small-btn secondary-btn" data-revoke-token="${r._id}:${t._id}" title="Excluir este link">✕</button>`).join('')}
         </div>
       </div>`;
     }).join('');
@@ -925,7 +925,19 @@
     if (a.oralScore != null) {
       return `<strong>${effScore(a)}</strong><br><span class="hint">Prova (${written}${max}) + Prova Oral (${a.oralScore})</span>`;
     }
-    return `${written}${max}`;
+    return `${written}${max}<br><span class="hint">Prova oral: Pendente</span>`;
+  }
+
+  // Fiscal principal (escolhido no formulário do Discord) em destaque; os
+  // demais são os fiscais que se conectaram durante a prova.
+  function proctorCell(a) {
+    const others = (a.proctorNames || []).filter((n) => n !== a.supervisorDisplayName);
+    const parts = [];
+    if (a.supervisorDiscordId) {
+      parts.push(`<span title="Fiscal principal escolhido no Discord">⭐ ${escapeHtml(a.supervisorDisplayName || 'sem nome')}</span><br><code>${escapeHtml(a.supervisorDiscordId)}</code>`);
+    }
+    if (others.length) parts.push(escapeHtml(others.join(', ')));
+    return parts.join('<br>') || '—';
   }
 
   function renderResultsTable() {
@@ -935,7 +947,7 @@
 
     let rows = resultsCache;
     if (proctorFilter) {
-      rows = rows.filter((a) => (a.proctorNames || []).some((name) => name.toLowerCase().includes(proctorFilter)));
+      rows = rows.filter((a) => (a.proctorNames || []).concat(a.supervisorDisplayName || [], a.supervisorDiscordId || []).some((name) => name.toLowerCase().includes(proctorFilter)));
     }
     rows = rows.slice().sort(RESULTS_SORTERS[sortKey] || RESULTS_SORTERS['date-desc']);
 
@@ -954,7 +966,7 @@
         <td>${discordCell(a)}</td>
         <td>${escapeHtml((a.roomId ? a.roomId.roomLabel : a.roomLabel) || '—')}</td>
         <td>${escapeHtml(a.examId ? a.examId.name : '')}</td>
-        <td>${escapeHtml((a.proctorNames || []).join(', ') || '—')}</td>
+        <td>${proctorCell(a)}</td>
         <td>${scoreCell(a)}</td>
         <td>${a.status === 'in_progress' ? '—' : a.correctCount}</td>
         <td>${a.status === 'in_progress' ? '—' : a.wrongCount}</td>
@@ -1026,11 +1038,15 @@
     const discordInfo = a.discordUserId
       ? `<p class="hint">Discord: <code>${escapeHtml(a.discordUserId)}</code>${sync.messageId ? ' · aviso publicado no canal de resultados' : ''}${sync.lastError ? ` · ⚠ último erro ao atualizar o Discord: ${escapeHtml(sync.lastError)}` : ''}</p>`
       : '<p class="hint">Sem vínculo com o Discord.</p>';
+    const supervisorInfo = a.supervisorDiscordId
+      ? `<p class="hint">Fiscal principal (escolhido no Discord): ${escapeHtml(a.supervisorDisplayName || 'sem nome')} · <code>${escapeHtml(a.supervisorDiscordId)}</code>${(a.proctorNames || []).length ? ` · fiscais conectados: ${escapeHtml(a.proctorNames.join(', '))}` : ''}</p>`
+      : `<p class="hint">Fiscal principal: não registrado (sala sem fiscal escolhido no Discord)${(a.proctorNames || []).length ? ` · fiscais conectados: ${escapeHtml(a.proctorNames.join(', '))}` : ''}</p>`;
     const summary = `
       ${a.deletedAt ? `<p class="error-msg">Resultado EXCLUÍDO em ${fmtDate(a.deletedAt)} por ${escapeHtml(a.deletedBy || '')} — motivo: ${escapeHtml(a.deleteReason || '')}</p>` : ''}
       ${discordInfo}
+      ${supervisorInfo}
       <div class="detail-grid">
-        <div class="stat-card"><div class="stat-value">${a.effectiveScore}${a.maxScoreComputed != null && a.oralScore == null ? ` / ${a.maxScoreComputed}` : ''}</div><div class="stat-label">Nota${a.oralScore != null ? ` final — Prova (${a.writtenScore != null ? a.writtenScore : a.score}) + Prova Oral (${a.oralScore})` : ''}</div></div>
+        <div class="stat-card"><div class="stat-value">${a.effectiveScore}${a.maxScoreComputed != null && a.oralScore == null ? ` / ${a.maxScoreComputed}` : ''}</div><div class="stat-label">Nota${a.oralScore != null ? ` final — Prova (${a.writtenScore != null ? a.writtenScore : a.score}) + Prova Oral (${a.oralScore})` : (a.status === 'in_progress' ? '' : ' da prova · Prova oral: Pendente')}</div></div>
         <div class="stat-card"><div class="stat-value">${a.correctCount}</div><div class="stat-label">Acertos</div></div>
         <div class="stat-card"><div class="stat-value">${a.wrongCount}</div><div class="stat-label">Erros</div></div>
         <div class="stat-card"><div class="stat-value">${a.unansweredCount}</div><div class="stat-label">Não respondidas</div></div>

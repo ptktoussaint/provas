@@ -17,7 +17,7 @@ Aba **Mensagens do Bot** do painel admin. Aqui você muda o texto e o visual de 
 - Escreva `[[nome.da.variavel]]` ou use **Inserir variável** (entra onde está o cursor).
 - Cada modelo só aceita as variáveis dele. Uma variável desconhecida ou de outro modelo **impede a publicação** e aparece com erro no próprio campo.
 - A troca é feita **uma única vez**. Se um nome de aluno contiver `[[algo]]`, isso aparece como texto: não vira outra variável.
-- Os **links de prova** (`[[links.aluno]]`, `[[links.fiscal]]`) só são aceitos no modelo privado **Sala criada**. Nunca aparecem na prévia, no teste nem no histórico: ali eles são fictícios.
+- Os **links de prova** (`[[links.aluno]]`, `[[links.fiscal]]`) só são aceitos no modelo privado **Sala criada**. Nesse modelo, `[[fiscal.mencao]]` / `[[fiscal.nome]]` mostram o fiscal escolhido no formulário (dono do link de fiscal). Se você já tinha publicado uma versão própria de "Sala criada", use **Restaurar padrão** para ganhar o campo **Fiscal**. Nunca aparecem na prévia, no teste nem no histórico: ali eles são fictícios.
 - Campos de **link e imagem** não aceitam variáveis.
 
 ## Menções × notificações (ping)
@@ -86,6 +86,9 @@ Se a mensagem já tinha sido publicada, ela é **editada**, sem novo ping. Vari�
 | `[[aluno.mencao]]` | Menção do aluno (ID cadastrado) | <@200000000000000002> |
 | `[[aluno.nome]]` | Nome do aluno na prova | Recruta Fictício |
 | `[[aluno.discordId]]` | ID do Discord do aluno | 200000000000000002 |
+| `[[fiscal.mencao]]` | Menção do fiscal dono do link (o escolhido no formulário) | <@400000000000000004> |
+| `[[fiscal.nome]]` | Nome do fiscal dono do link | Cabo Fiscal Exemplo |
+| `[[fiscal.discordId]]` | ID do Discord do fiscal | 400000000000000004 |
 | `[[prova.nome]]` | Nome da prova | Prova TCEL (exemplo) |
 | `[[prova.duracao]]` | Duração da prova | 120 minutos |
 | `[[sala.nome]]` | Nome da sala | Discord ABC12 |
@@ -126,7 +129,7 @@ Se a mensagem já tinha sido publicada, ela é **editada**, sem novo ping. Vari�
 | Modelo (chave) | Quem vê | Variáveis aceitas | Pode notificar |
 |---|---|---|---|
 | Painel /provatcel (`panel`) | canal | `[[data]]` | ninguém |
-| Sala criada (links) (`room_created`) | só o operador | `[[data]]` `[[operador.mencao]]` `[[operador.nome]]` `[[operador.discordId]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[prova.duracao]]` `[[sala.nome]]` `[[sala.codigo]]` `[[links.aluno]]` `[[links.fiscal]]` | ninguém |
+| Sala criada (links) (`room_created`) | só o operador | `[[data]]` `[[operador.mencao]]` `[[operador.nome]]` `[[operador.discordId]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[fiscal.mencao]]` `[[fiscal.nome]]` `[[fiscal.discordId]]` `[[prova.duracao]]` `[[sala.nome]]` `[[sala.codigo]]` `[[links.aluno]]` `[[links.fiscal]]` | ninguém |
 | Resultado concluído (canal) (`result_finished`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.nota]]` `[[resultado.total]]` `[[resultado.situacao]]` `[[resultado.tentativa]]` `[[resultado.data]]` | Aluno (menção [[aluno.mencao]]) |
 | Resultado com Prova Oral (`result_updated`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.nota]]` `[[resultado.total]]` `[[resultado.situacao]]` `[[resultado.tentativa]]` `[[resultado.data]]` `[[resultado.notaOriginal]]` `[[resultado.notaProva]]` `[[resultado.notaOral]]` `[[resultado.notaFinal]]` | ninguém |
 | Resultado removido (edição da mensagem) (`result_removed`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.tentativa]]` | ninguém |

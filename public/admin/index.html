@@ -372,6 +372,13 @@
               <div class="field-group"><label>Canal padrão de resultados DAFP (cada prova pode ter o seu)</label><input id="ig-dafp-result-channel" placeholder="ID do canal" /></div>
               <div class="field-group"><label>Canal do /provas-dafp (opcional: se preenchido, só aceita pedidos desse canal)</label><input id="ig-dafp-command-channel" placeholder="ID do canal" /></div>
             </div>
+            <h4 class="discord-subtitle">Cargos automáticos DAFP</h4>
+            <div class="discord-form-grid">
+              <div class="field-group"><label>Role obrigatória durante o fluxo (ex.: Bombeiros Militares da Fluxo)</label><input id="ig-dafp-base-role" placeholder="ID do cargo" />
+                <p class="hint" style="margin-top:4px">Removida quando o aluno inicia a prova e devolvida quando a prova termina.</p></div>
+              <div class="field-group"><label>Mérito em Proficiência</label><input id="ig-dafp-perfect-role" placeholder="ID do cargo" />
+                <p class="hint" style="margin-top:4px">Concedida automaticamente quando o aluno obtém a nota máxima da prova.</p></div>
+            </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button type="submit" class="small-btn">Salvar configuração</button>
             </div>

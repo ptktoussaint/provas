@@ -34,7 +34,8 @@ const PLACEHOLDERS = {
   'avaliador.discordId': { help: 'ID do Discord do avaliador', sample: '400000000000000004' },
   'resultado.status': { help: 'APROVADO / REPROVADO (ou "Nota registrada" sem aprovação automática)', sample: 'APROVADO' },
   'resultado.notaMinima': { help: 'Nota mínima para aprovação (vazio sem aprovação automática)', sample: '7' },
-  'resultado.cargoMencao': { help: 'Menção do cargo do resultado (aprovado ou reprovado)', sample: '<@&300000000000000007>' },
+  'resultado.cargoMencao': { help: 'Menção do cargo de aprovado da prova (vazio se não aprovado)', sample: '<@&300000000000000007>' },
+  'resultado.gabaritou': { help: 'Sim / Não — tirou a nota máxima (decidido pelo site)', sample: 'Não' },
   'lista.resultados': { help: 'Lista da página de resultados', sample: '**1.** <@200000000000000002> · Recruta Fictício — **86/100** · Prova TCEL (exemplo) · 24/09/2026 · tentativa `a1b2c3` · não promovido' },
   'pagina.atual': { help: 'Página atual', sample: '1' },
   'pagina.total': { help: 'Total de páginas', sample: '3' },
@@ -149,8 +150,8 @@ const TEMPLATES = {
   dafp_result: {
     label: 'Resultado DAFP (canal)',
     visibility: 'public',
-    help: 'Resultado de uma prova DAFP (/provas-dafp) no canal de resultados DAFP. O cargo do resultado é aplicado pelo BotGhost no mesmo evento (campos applyRole/roleId da reserva).',
-    placeholders: ['data', ...STUDENT, 'avaliador.mencao', 'avaliador.nome', 'avaliador.discordId', ...RESULT, 'resultado.status', 'resultado.notaMinima', 'resultado.cargoMencao'],
+    help: 'Resultado de uma prova DAFP (/provas-dafp) no canal de resultados DAFP. Os cargos (Role base, aprovado e Mérito) são aplicados pelo BotGhost no mesmo evento (campos roleAction1..3 da reserva).',
+    placeholders: ['data', ...STUDENT, 'avaliador.mencao', 'avaliador.nome', 'avaliador.discordId', ...RESULT, 'resultado.status', 'resultado.notaMinima', 'resultado.cargoMencao', 'resultado.gabaritou'],
     pingTargets: ['aluno', 'avaliador'],
     default: {
       content: '',

@@ -178,7 +178,7 @@ test('DAFP aprovado: sessão, links, finalização, aprovação e cargo; consult
   assert.equal(d.autoApproval, 'true');
   assert.equal(d.passingScore, '7');
   assert.equal(d.approvedRoleId, ROLE_OK);
-  assert.equal(d.failedRoleId, ROLE_FAIL);
+  assert.equal(d.failedRoleId, '', 'cargo de reprovado é legado');
   assert.equal(d.resultChannelId, DAFP_CHANNEL);
   assert.ok(d.studentAvatarUrl.startsWith('https://cdn.discordapp.com/'));
   assert.match(d.studentUrl, /\/aluno\//);
@@ -217,7 +217,7 @@ test('DAFP aprovado: sessão, links, finalização, aprovação e cargo; consult
   assert.equal(r.passed, 'true');
   assert.equal(r.resultRoleId, ROLE_OK);
   assert.equal(r.approvedRoleId, ROLE_OK);
-  assert.equal(r.failedRoleId, ROLE_FAIL);
+  assert.equal(r.failedRoleId, '', 'cargo de reprovado é legado');
   assert.equal(r.resultChannelId, DAFP_CHANNEL);
   assert.ok(r.finishedAt);
   assert.equal(r.resultPublished, 'false');
@@ -265,11 +265,11 @@ test('DAFP reprovado, nota igual à mínima = aprovado, e sem aprovação autom�
 
   const fail = await dafpRun('segundo-tenente', 6);
   assert.equal(fail.attempt.outcome.resultStatus, 'REPROVADO');
-  assert.equal(fail.attempt.outcome.resultRoleId, ROLE_FAIL);
+  assert.equal(fail.attempt.outcome.resultRoleId, null, 'reprovado não recebe cargo');
   let s = (await api.call('GET', `/dafp/sessions/${fail.room.sessionId}`, H.actorFields())).body.data;
   assert.equal(s.resultStatus, 'REPROVADO');
   assert.equal(s.passed, 'false');
-  assert.equal(s.resultRoleId, ROLE_FAIL);
+  assert.equal(s.resultRoleId, '');
   assert.equal(s.scoreText, '6/10');
 
   await M.ExamAttempt.updateOne({ _id: fail.attempt._id }, { $set: { deletedAt: new Date() } });

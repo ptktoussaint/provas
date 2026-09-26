@@ -14,7 +14,7 @@
   function fmtDate(d) { return d ? new Date(d).toLocaleString('pt-BR') : '—'; }
   const $ = (id) => document.getElementById(id);
 
-  const KIND_TEXT = { result: 'Aviso de resultado', promotion_announcement: 'Anúncio de promoção', template_test: 'Teste de mensagem', panel_update: 'Atualização do painel' };
+  const KIND_TEXT = { result: 'Aviso de resultado', promotion_announcement: 'Anúncio de promoção', template_test: 'Teste de mensagem', panel_update: 'Atualização do painel', dafp_started: 'DAFP: início (retirar Role base)' };
   const NOTIF_STATUS = {
     pending: ['Na fila', 'badge-warn'],
     dispatched: ['Webhook disparado (aguardando BotGhost)', 'badge-warn'],
@@ -94,6 +94,8 @@
     $('ig-ops-dafp').value = (c.operatorIds.dafp || []).join(', ');
     $('ig-dafp-result-channel').value = (c.dafp && c.dafp.resultChannelId) || '';
     $('ig-dafp-command-channel').value = (c.dafp && c.dafp.commandChannelId) || '';
+    $('ig-dafp-base-role').value = (c.dafp && c.dafp.baseRoleId) || '';
+    $('ig-dafp-perfect-role').value = (c.dafp && c.dafp.perfectScoreRoleId) || '';
     $('ig-default-exam').innerHTML = '<option value="">(sem padrão — usa a única apta, ou o operador escolhe)</option>'
       + data.exams.map((e) => `<option value="${esc(e._id)}" ${String(e._id) === String(c.defaultExamId) ? 'selected' : ''}>${esc(e.name)}${e.active ? '' : ' (inativa)'}</option>`).join('');
   }
@@ -104,7 +106,12 @@
     msg.textContent = 'Salvando...';
     const body = {
       operatorIds: { generate: $('ig-ops-generate').value, results: $('ig-ops-results').value, promote: $('ig-ops-promote').value, dafp: $('ig-ops-dafp').value },
-      dafp: { resultChannelId: $('ig-dafp-result-channel').value, commandChannelId: $('ig-dafp-command-channel').value },
+      dafp: {
+        resultChannelId: $('ig-dafp-result-channel').value,
+        commandChannelId: $('ig-dafp-command-channel').value,
+        baseRoleId: $('ig-dafp-base-role').value,
+        perfectScoreRoleId: $('ig-dafp-perfect-role').value,
+      },
       defaultExamId: $('ig-default-exam').value || null,
       channels: { panel: $('ig-ch-panel').value, results: $('ig-ch-results').value, test: $('ig-ch-test').value },
       promotion: {

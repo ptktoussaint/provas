@@ -21,6 +21,11 @@ const integrationConfigSchema = new mongoose.Schema({
   dafp: {
     resultChannelId: { type: String, default: null },
     commandChannelId: { type: String, default: null },
+    // Cargos automáticos DAFP (globais): a Role base sai quando o aluno
+    // INICIA a prova e volta quando ela termina; a de Mérito em
+    // Proficiência é dada a quem tira a nota máxima.
+    baseRoleId: { type: String, default: null },
+    perfectScoreRoleId: { type: String, default: null },
   },
   defaultExamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', default: null },
   channels: {

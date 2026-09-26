@@ -95,15 +95,35 @@ class NotificationDispatcher {
       deletedAt: null,
       status: { $in: ['finished', 'finished_timeout'] },
     }).select('_id').sort({ finishedAt: -1 }).limit(300).lean();
-    if (!attempts.length) return 0;
-    const existing = new Set((await IntegrationNotification.find({ attemptId: { $in: attempts.map((a) => a._id) } }).select('attemptId').lean()).map((n) => String(n.attemptId)));
+    const existing = new Set((await IntegrationNotification.find({ attemptId: { $in: attempts.map((a) => a._id) }, kind: 'result' }).select('attemptId').lean()).map((n) => String(n.attemptId)));
     let created = 0;
     for (const a of attempts) {
       if (existing.has(String(a._id))) continue;
       const full = await ExamAttempt.findById(a._id).select('-snapshot');
       if (await notifications.syncResultNotification(full)) created += 1;
     }
+    created += await this.reconcileDafpRoles();
     if (created) this.kick();
+    return created;
+  }
+
+  // DAFP: prova iniciada sem o aviso de remoção da Role base, ou resultado
+  // excluído que ainda não devolveu a Role base (processo caiu no meio).
+  async reconcileDafpRoles() {
+    let created = 0;
+    const started = await ExamAttempt.find({ examGroup: 'DAFP', status: 'in_progress', deletedAt: null, dafpBaseRoleRemovedId: { $ne: null } })
+      .select('_id discordUserId dafpBaseRoleRemovedId').limit(300).lean();
+    for (const a of started) {
+      if (await IntegrationNotification.exists({ key: notifications.startKey(a._id) })) continue;
+      if (await notifications.createDafpStartNotification(a)) created += 1;
+    }
+    const removed = await ExamAttempt.find({ examGroup: 'DAFP', deletedAt: { $ne: null }, dafpBaseRoleRemovedId: { $ne: null } })
+      .select('_id').sort({ deletedAt: -1 }).limit(300).lean();
+    for (const a of removed) {
+      if (await IntegrationNotification.exists({ key: `result:${a._id}` })) continue;
+      const full = await ExamAttempt.findById(a._id).select('-snapshot');
+      if (await notifications.syncResultNotification(full)) created += 1;
+    }
     return created;
   }
 }

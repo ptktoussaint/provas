@@ -14,7 +14,9 @@ const historySchema = new mongoose.Schema({
 }, { _id: false });
 
 const integrationNotificationSchema = new mongoose.Schema({
-  kind: { type: String, enum: ['result', 'promotion_announcement', 'template_test', 'panel_update'], required: true, index: true },
+  // dafp_started: início real de uma prova DAFP — sem mensagem, só a
+  // remoção da Role base (ver botghost/notifications.js).
+  kind: { type: String, enum: ['result', 'promotion_announcement', 'template_test', 'panel_update', 'dafp_started'], required: true, index: true },
   key: { type: String, required: true, unique: true },
   status: {
     type: String,
@@ -40,7 +42,7 @@ const integrationNotificationSchema = new mongoose.Schema({
     token: { type: String, default: null },
     until: { type: Date, default: null },
     claimedAt: { type: Date, default: null },
-    action: { type: String, default: null }, // send | edit
+    action: { type: String, default: null }, // send | edit | none (só cargos)
     renderedRevision: { type: Number, default: null },
     channelId: { type: String, default: null },
   },

@@ -380,7 +380,7 @@ Reserva o aviso por 2 minutos e devolve o conteúdo **atual**.
   - `action`: `send` (nova mensagem) ou `edit` (editar a existente)
   - `channelId`, `messageId` (quando é `edit`), `keepComponents` (`"true"` no painel)
   - `kind`, `templateKey`, mensagem pronta (`native.*`, `discordBodyJson`)
-  - `applyRole` (sempre presente): `"true"` só no 1º envio de um resultado **DAFP** com aprovação automática — então aplique o cargo `roleId` ao membro `memberDiscordId`. Resultados DAFP trazem também os campos da seção D do **BOTGHOST_DAFP_IMPLEMENTACAO.md**.
+  - `notificationActionType` (sempre presente): `TCEL_RESULT`, `PROMOTION_ANNOUNCEMENT`, `TEMPLATE_TEST`, `PANEL_UPDATE` ou, no fluxo DAFP, `DAFP_STARTED` / `DAFP_FINISHED`. `publishMessage` (`"false"` = não publicar nada, só cargos). Ações de cargo `roleAction1..3*` (sempre presentes; `"false"` fora do DAFP). `applyRole`/`roleId`/`memberDiscordId` são legados. Detalhes do ciclo de cargos DAFP em **BOTGHOST_DAFP_IMPLEMENTACAO.md** (seções E e F). Nos avisos TCEL nada muda: continue como sempre.
 - **Sem 200 = não publique nada:**
 
 | code | Significado |

@@ -1,11 +1,15 @@
-# BOTGHOST — Implementação DAFP (e preservação do TCEL)
+# BOTGHOST — Implementação DAFP (estado atual) e preservação do TCEL
 
-Referência técnica para configurar **manualmente** no BotGhost o novo comando `/provas-dafp`, sem mexer no `/provas-tcel` que já funciona. Pode ser entregue a outra IA para virar um tutorial de cliques.
+Referência técnica **completa e atual** para configurar **manualmente** no BotGhost o comando `/provas-dafp` e o ciclo de cargos das provas DAFP, sem mexer no `/provas-tcel` que já funciona. Foi escrita para ser entregue a outra IA, que vai transformá-la num tutorial campo por campo.
 
 > **Como ler os exemplos**
-> - As respostas JSON foram geradas pelo próprio site, em teste automatizado. Os IDs do Discord, os IDs de prova/sessão e os links são **fictícios**.
-> - Os campos `message`, `native`, `discordBodyJson` e `discordCallbackJson` (mensagem pronta) aparecem abreviados como `"(...)"`.
-> - Nenhuma variável do BotGhost é inventada aqui. Onde aparece `<valor>`, o valor vem da interação ou de uma resposta anterior. O nome da variável do BotGhost que carrega esse valor é você quem escolhe no seu bloco.
+> - As respostas JSON foram geradas pelo próprio site, em teste automatizado. Os IDs do Discord, os IDs de prova/sessão/aviso e os links são **fictícios**.
+> - `message` (quando é embed), `native`, `discordBodyJson` e `discordCallbackJson` (mensagem pronta) aparecem abreviados como `"(...)"`.
+> - Nenhuma variável do BotGhost é inventada aqui. Onde aparece `<valor>`, o valor vem da interação ou de uma resposta anterior. O nome da variável que carrega esse valor no BotGhost é você quem escolhe no seu bloco.
+> - IDs fictícios de cargos usados nos exemplos:
+>   - `810000000000000001` = **Bombeiros Militares da Fluxo** (Role base);
+>   - `810000000000000002` = **Mérito em Proficiência**;
+>   - `810000000000000003` = **Aprovado Prova Aspirante**.
 
 ---
 
@@ -17,11 +21,11 @@ Referência técnica para configurar **manualmente** no BotGhost o novo comando 
 | **Cabeçalho obrigatório** | `Authorization: Bearer <chave do site>` (a chave fica em **Manage Secrets** do BotGhost; é a mesma `BOTGHOST_SITE_API_KEY` do Render) |
 | **Content-Type** (POST) | `application/json` |
 | **Formato de toda resposta** | `{ "ok": true/false, "code": "...", "message": "...", "data": { ... } }` |
-| **Campos em `data`** | sempre texto ou número simples; `"true"`/`"false"` são **texto** |
+| **Campos em `data`** | sempre texto ou número simples, exceto as listas `exams`, `items` e `roleActions`; `"true"`/`"false"` são **texto** |
 | **`data.displayText`** | sempre presente (texto pronto para mostrar) |
 | **IDs do Discord** | sempre **texto entre aspas**. O site recusa ID como número (400), porque número perde dígitos |
 
-**Identificação de quem clicou.** Vai em todo pedido: no **Request Body** dos POST e nos **URL Params** dos GET.
+**Identificação de quem clicou.** Vai no **Request Body** dos POST e nos **URL Params** dos GET. **Não** vai nos pedidos `/notifications/...`, que só usam a chave.
 
 | Campo | Conteúdo |
 |---|---|
@@ -40,21 +44,24 @@ Referência técnica para configurar **manualmente** no BotGhost o novo comando 
 
 ## A. Fluxo TCEL existente (`/provas-tcel`) — NÃO muda
 
-**Nenhuma alteração é necessária no `/provas-tcel` do BotGhost.** As rotas, os parâmetros, o formato das respostas e os códigos continuam iguais.
+**Nenhuma alteração é necessária no `/provas-tcel` do BotGhost.** Rotas, parâmetros, respostas e mensagens continuam iguais.
+
+**Nada do ciclo de cargos DAFP vale para o TCEL** (testado):
+- iniciar uma prova TCEL não gera aviso de início;
+- o resultado TCEL não traz ações de cargo;
+- a mensagem TCEL é a mesma de antes.
 
 ### Identificação fixa da TCEL
 - A prova do fluxo TCEL é **sempre** a prova de **slug `tcel`** (identificador interno fixo), do grupo **TCEL**.
-- **Antes** desta versão, o site escolhia a prova do pedido, ou a "prova padrão" da aba Integração, ou a **única** prova apta. Com as provas DAFP cadastradas, a "única prova" deixaria de existir e o comando quebraria. **Isso foi corrigido.**
-- **Agora:**
-  - o `examId` enviado pelo fluxo TCEL é **ignorado**. Mesmo mandando o ID de uma prova DAFP, a sala é criada na prova `tcel` (testado);
-  - se a prova `tcel` estiver desativada ou sem questões ativas, o fluxo TCEL responde `409 exam_not_eligible` e **não** abre outra prova;
-  - provas DAFP nunca aparecem em `GET /exams` (lista TCEL), em `GET /results` (Conferir resultados TCEL) nem nos candidatos da promoção TCEL.
-- **Migração automática** (no primeiro início do site depois do deploy): a prova TCEL existente recebe `slug = "tcel"` e `group = "TCEL"`.
+- O `examId` enviado pelo fluxo TCEL é **ignorado**. Mesmo mandando o ID de uma prova DAFP, a sala é criada na prova `tcel` (testado).
+- Se a prova `tcel` estiver desativada ou sem questões ativas, o fluxo TCEL responde `409 exam_not_eligible` e **não** abre outra prova.
+- Provas DAFP nunca aparecem em `GET /exams` (lista TCEL), em `GET /results` (Conferir resultados TCEL) nem nos candidatos da promoção TCEL.
+- **Migração automática** (ao iniciar o site): a prova TCEL existente recebe `slug = "tcel"` e `group = "TCEL"`.
   - **Como ela é identificada:**
     1. a "prova padrão" da aba Integração;
     2. senão, a prova da sala mais recente criada pelo Discord;
     3. senão, a única prova existente.
-  - Se não der para identificar com segurança, nada é marcado. O fluxo TCEL segue a regra antiga, mas **só entre provas TCEL**, e o painel mostra um aviso para marcar a prova (seção **Integração / Resultado**, identificador `tcel`).
+  - Se não der para identificar com segurança, nada é marcado e o painel mostra um aviso para marcar a prova (identificador `tcel`).
 - A prova `tcel` não pode trocar de identificador nem de grupo pelo painel.
 
 ### Rotas TCEL (sem mudança de contrato)
@@ -62,7 +69,7 @@ Referência técnica para configurar **manualmente** no BotGhost o novo comando 
 | Método | Rota | Uso |
 |---|---|---|
 | `GET` | `/health` | teste da chave (sem identificação) |
-| `GET` | `/exams` | prova do fluxo TCEL: agora sempre só a `tcel`, com `choiceRequired = "false"` |
+| `GET` | `/exams` | prova do fluxo TCEL: sempre só a `tcel`, com `choiceRequired = "false"` |
 | `POST` | `/rooms/prepare` | valida aluno/fiscal e avisa sala aberta |
 | `POST` | `/rooms` | **cria a sala TCEL** |
 | `POST` | `/rooms/{roomId}/regenerate-links` | novos links |
@@ -85,40 +92,14 @@ Referência técnica para configurar **manualmente** no BotGhost o novo comando 
   "idempotencyKey": "1234567890123456789"
 }
 ```
+Resposta `201 room_created`: igual à de antes (`roomId`, `roomLabel`, `roomCode`, `examId`, `examName`, `studentDiscordId`, `supervisor*`, `studentUrl`, `supervisorUrl`, `linksAvailable` e a mensagem privada pronta). **Não** traz campos DAFP.
 
-Resposta real `201 room_created`:
-```json
-{
-  "ok": true,
-  "code": "room_created",
-  "message": "Sala criada. Os links vão só nesta resposta privada.",
-  "data": {
-    "roomId": "6ab77b1ad00dfe16237fd9e2",
-    "roomLabel": "Discord B2BDC4",
-    "roomCode": "#7fd9e2",
-    "examId": "6ab77b19d00dfe16237fd9a0",
-    "examName": "Prova Tcel",
-    "studentDiscordId": "700000000000000303",
-    "studentAvatarSaved": "false",
-    "supervisorDiscordId": "",
-    "supervisorDisplayName": "",
-    "supervisorMention": "",
-    "supervisorSelected": "false",
-    "studentUrl": "https://provas.example.com/aluno/HKN83UpaJ7Rjexu14DY-HSzUmJ8OT3X05wRZlVt2SMk",
-    "supervisorUrl": "https://provas.example.com/professor/GeWwB2I5KEu4X-_zNXz-lJUY9HOdL9AduNYaJz1Fdt8",
-    "linksAvailable": "true",
-    "message": "(...)", "native": "(...)", "discordBodyJson": "(...)", "discordCallbackJson": "(...)",
-    "displayText": "Sala criada. Os links vão só nesta resposta privada."
-  }
-}
-```
+**Único acréscimo no TCEL:** na reserva (`claim`) de avisos TCEL passaram a vir também campos extras, que o fluxo TCEL pode ignorar:
+- `notificationActionType = "TCEL_RESULT"` (ou `PROMOTION_ANNOUNCEMENT`, `TEMPLATE_TEST`, `PANEL_UPDATE`);
+- `publishMessage = "true"`;
+- `roleAction1..3Enabled = "false"`.
 
-**Retrocompatibilidade confirmada por teste:**
-- criar sala sem `examId` → TCEL;
-- `examId` de uma prova DAFP no fluxo TCEL → continua TCEL;
-- `/exams` → só TCEL;
-- links do aluno e do fiscal abrem, o fiscal vê a tela do aluno (WebRTC), a finalização calcula a nota, e o resultado aparece em `/results`;
-- a consulta TCEL não mostra resultados DAFP.
+Nada foi removido ou renomeado.
 
 ---
 
@@ -135,70 +116,65 @@ Request (URL Params):
 GET /dafp/exams?guildId=900000000000000000&actorDiscordId=700000000000000009&channelId=600000000000000001&actorDisplayName=Professor
 ```
 
-Resposta real `200 dafp_exams`. As opções `opt3…opt25` foram omitidas aqui; elas vêm com `Hide = "true"` quando não há prova.
+Resposta real `200 dafp_exams` (com uma prova cadastrada; as opções `opt2…opt25` vêm com `Hide = "true"` e foram omitidas):
 ```json
 {
   "ok": true,
   "code": "dafp_exams",
-  "message": "2 prova(s) DAFP apta(s).",
+  "message": "1 prova(s) DAFP apta(s).",
   "data": {
-    "examCount": "2",
+    "examCount": "1",
     "exams": [
-      { "examId": "6ab77b19d00dfe16237fd9c4", "examSlug": "segundo-tenente", "examName": "Segundo Tenente", "examGroup": "DAFP",
-        "questionCount": "10", "pointsPerQuestion": "1", "examMaxScore": "10", "durationMinutes": "120",
-        "autoApproval": "true", "passingScore": "7", "approvedRoleId": "800000000000000001", "failedRoleId": "800000000000000002",
-        "resultChannelId": "600000000000000009" },
-      { "examId": "6ab77b19d00dfe16237fd9ad", "examSlug": "aspirante", "examName": "Aspirante", "examGroup": "DAFP",
-        "questionCount": "10", "pointsPerQuestion": "1", "examMaxScore": "10", "durationMinutes": "120",
-        "autoApproval": "true", "passingScore": "7", "approvedRoleId": "800000000000000001", "failedRoleId": "800000000000000002",
-        "resultChannelId": "600000000000000009" }
+      {
+        "examId": "6ab7844fc58518746e9be9c5",
+        "examSlug": "aspirante",
+        "examName": "Aspirante",
+        "examGroup": "DAFP",
+        "questionCount": "10",
+        "pointsPerQuestion": "1",
+        "examMaxScore": "10",
+        "durationMinutes": "120",
+        "autoApproval": "true",
+        "passingScore": "7",
+        "approvedRoleId": "810000000000000003",
+        "failedRoleId": "",
+        "resultChannelId": "600000000000000009",
+        "dafpBaseRoleId": "810000000000000001",
+        "dafpPerfectScoreRoleId": "810000000000000002"
+      }
     ],
-    "displayText": "1. Segundo Tenente (segundo-tenente)\n2. Aspirante (aspirante)",
-    "opt1Label": "Segundo Tenente", "opt1Description": "10 questões · 120 min · mínimo 7", "opt1Value": "segundo-tenente", "opt1Hide": "false", "opt1Default": "false",
-    "opt2Label": "Aspirante", "opt2Description": "10 questões · 120 min · mínimo 7", "opt2Value": "aspirante", "opt2Hide": "false", "opt2Default": "false"
+    "displayText": "1. Aspirante (aspirante)",
+    "opt1Label": "Aspirante",
+    "opt1Description": "10 questões · 120 min · mínimo 7",
+    "opt1Value": "aspirante",
+    "opt1Hide": "false",
+    "opt1Default": "false"
   }
 }
 ```
+`failedRoleId` é **legado**: vem sempre vazio, porque reprovado não recebe mais cargo.
 
 ### Menu de seleção (Select Menu)
-O BotGhost **não monta um menu a partir de uma lista (array)**. Por isso o site devolve **25 opções fixas prontas**, cada uma com cinco campos:
+O BotGhost não monta um menu a partir de uma lista (array). Por isso o site devolve **25 opções fixas prontas**, cada uma com cinco campos:
 - `optNLabel`: texto da opção;
 - `optNDescription`: descrição;
 - `optNValue`: o **slug** da prova, que é o valor a enviar depois;
 - `optNHide`: `"true"` quando a posição está vazia;
 - `optNDefault`: `"false"`.
 
-**Como montar:**
-- Crie um Select Menu com 25 opções fixas e ligue cada campo da opção N à variável correspondente da resposta.
-- A opção escolhida volta como **slug** (ex.: `aspirante`) e vai no campo `examSlug` da criação de sessão.
-
-**Alternativas se o menu dinâmico não funcionar no seu plano/bloco:**
-- **Menu com valores fixos:** as 5 opções digitadas à mão, com os valores `aspirante`, `segundo-tenente`, `primeiro-tenente`, `capitao` e `major` — os slugs que você definir no painel.
-- **Validar uma prova individualmente:** `GET /dafp/exams/{slug ou examId}` (abaixo).
+**Alternativas:**
+- **Menu com valores fixos:** os slugs digitados à mão (`aspirante`, `segundo-tenente`, `primeiro-tenente`, `capitao`, `major` — os que você definir no painel).
+- **Validar uma prova individualmente:** `GET /dafp/exams/{ref}` (abaixo).
 
 ### Consulta/validação de UMA prova DAFP
-**`GET /dafp/exams/{ref}`**, em que `{ref}` é o slug (ex.: `aspirante`) ou o `examId`. Mesma autenticação e identificação.
-
-Resposta real `200 dafp_exam`:
-```json
-{
-  "ok": true, "code": "dafp_exam", "message": "Prova DAFP encontrada.",
-  "data": {
-    "examId": "6ab77b19d00dfe16237fd9ad", "examSlug": "aspirante", "examName": "Aspirante", "examGroup": "DAFP",
-    "questionCount": "10", "pointsPerQuestion": "1", "examMaxScore": "10", "durationMinutes": "120",
-    "autoApproval": "true", "passingScore": "7", "approvedRoleId": "800000000000000001", "failedRoleId": "800000000000000002",
-    "resultChannelId": "600000000000000009",
-    "active": "true", "eligible": "true",
-    "displayText": "Aspirante (aspirante)"
-  }
-}
-```
-- `eligible = "false"`: a prova existe mas está inativa ou sem questões ativas.
-- TCEL ou outra prova fora do grupo DAFP → `409 exam_not_dafp`:
-```json
-{ "ok": false, "code": "exam_not_dafp", "message": "Esta prova não pertence ao grupo DAFP.", "data": { "displayText": "Esta prova não pertence ao grupo DAFP." } }
-```
-- Prova inexistente → `404 exam_not_found`.
+**`GET /dafp/exams/{ref}`**, em que `{ref}` é o slug ou o `examId`. Mesma autenticação e identificação.
+- **Resposta `200 dafp_exam`:** os mesmos campos de cada item de `exams`, mais:
+  - `active` (`"true"`/`"false"`);
+  - `eligible` (`"true"` = pode ser iniciada);
+  - `displayText`.
+- **Erros:**
+  - TCEL ou outra prova fora do grupo DAFP → `409 exam_not_dafp`;
+  - inexistente → `404 exam_not_found`.
 
 ---
 
@@ -208,6 +184,7 @@ Resposta real `200 dafp_exam`:
 - **Headers:** `Authorization: Bearer <chave>` e `Content-Type: application/json`.
 - **Permissão:** a lista de professores DAFP.
 - **Sessão = sala:** `sessionId` é igual a `roomId`.
+- **Cargos:** criar a sessão **não altera cargo nenhum**. A Role base só sai quando o aluno **inicia** a prova (seção E).
 
 ### Request Body COMPLETO
 | Campo | Obrigatório | Conteúdo |
@@ -218,8 +195,8 @@ Resposta real `200 dafp_exam`:
 | `actorDisplayName` | não | nome do professor |
 | `student` | **sim** | ID do **aluno**, ou a menção `<@ID>` |
 | `supervisorDiscordId` | **sim** | ID do **avaliador**, ou a menção `<@ID>`. Precisa ser outra pessoa que não o aluno |
-| `examSlug` | **sim** | slug da prova escolhida (ex.: `aspirante`). Aceita também `examId` (o ID da prova) no lugar |
-| `studentDisplayName` | não | nome do aluno que aparece na prova. Vazio → `Aluno 1234` (final do ID) |
+| `examSlug` | **sim** | slug da prova escolhida (ex.: `aspirante`). Aceita também `examId` no lugar |
+| `studentDisplayName` | não | nome do aluno na prova. Vazio → `Aluno 1234` (final do ID) |
 | `supervisorDisplayName` | não | nome do avaliador. Vazio → `Fiscal 1234` |
 | `studentAvatarUrl` | não | foto do aluno: só URL HTTPS do CDN do Discord com o ID do aluno. Qualquer outra coisa é ignorada, sem erro |
 | `idempotencyKey` | **sim** | ID da interação (6–100 caracteres: letras, números, `: _ . -`) |
@@ -228,183 +205,442 @@ Resposta real `200 dafp_exam`:
 1. a prova existe (pelo slug ou ID);
 2. está ativa;
 3. é do grupo **DAFP**;
-4. tem questões ativas, ou seja, pode ser iniciada;
+4. tem questões ativas;
 5. o avaliador foi informado e não é o aluno;
 6. não há outra sessão aberta do mesmo aluno na mesma prova.
 
-Exemplo real de request:
+Exemplo de request:
 ```json
 {
   "guildId": "900000000000000000",
   "actorDiscordId": "700000000000000009",
   "channelId": "600000000000000001",
-  "actorDisplayName": "Operador Teste",
+  "actorDisplayName": "Professor",
   "student": "700000000000000101",
   "studentDisplayName": "Recruta Lima",
   "supervisorDiscordId": "700000000000000202",
   "supervisorDisplayName": "Cap Souza",
   "examSlug": "aspirante",
-  "studentAvatarUrl": "https://cdn.discordapp.com/avatars/700000000000000101/0123456789abcdef0123456789abcdef.png",
   "idempotencyKey": "1300000000000000001"
 }
 ```
 
-Resposta real COMPLETA `201 room_created`. `message`, `native`, `discordBodyJson` e `discordCallbackJson` trazem a mensagem privada pronta do modelo "Sala criada", com os campos Aluno, Fiscal, Prova, Sala e os dois links.
+Resposta real COMPLETA `201 room_created`. `message`, `native`, `discordBodyJson` e `discordCallbackJson` trazem a mensagem privada pronta do modelo "Sala criada".
 ```json
 {
   "ok": true,
   "code": "room_created",
   "message": "Sala criada. Os links vão só nesta resposta privada.",
   "data": {
-    "roomId": "6ab77b1ad00dfe16237fd9f9",
-    "roomLabel": "Discord D223FC",
-    "roomCode": "#7fd9f9",
-    "examId": "6ab77b19d00dfe16237fd9ad",
+    "roomId": "6ab7844fc58518746e9be9e6",
+    "roomLabel": "Discord FFE3CB",
+    "roomCode": "#9be9e6",
+    "examId": "6ab7844fc58518746e9be9c5",
     "examName": "Aspirante",
     "studentDiscordId": "700000000000000101",
-    "studentAvatarSaved": "true",
+    "studentAvatarSaved": "false",
     "supervisorDiscordId": "700000000000000202",
     "supervisorDisplayName": "Cap Souza",
     "supervisorMention": "<@700000000000000202>",
     "supervisorSelected": "true",
-    "sessionId": "6ab77b1ad00dfe16237fd9f9",
+    "sessionId": "6ab7844fc58518746e9be9e6",
     "sessionStatus": "CRIADA",
     "examGroup": "DAFP",
     "examSlug": "aspirante",
     "studentMention": "<@700000000000000101>",
-    "studentAvatarUrl": "https://cdn.discordapp.com/avatars/700000000000000101/0123456789abcdef0123456789abcdef.png",
+    "studentAvatarUrl": "",
     "examMaxScore": "10",
     "autoApproval": "true",
     "passingScore": "7",
-    "approvedRoleId": "800000000000000001",
-    "failedRoleId": "800000000000000002",
+    "approvedRoleId": "810000000000000003",
+    "failedRoleId": "",
     "resultChannelId": "600000000000000009",
-    "studentUrl": "https://provas.example.com/aluno/Bx0VR_5zKvpIJcwX3s_Q1sZvv-rLDv63FCNAdzR1PbQ",
-    "supervisorUrl": "https://provas.example.com/professor/zKfUc_fe8-wUUx_hAgo-tPSUt5z3afNX3F-g547ADho",
+    "dafpBaseRoleId": "810000000000000001",
+    "dafpPerfectScoreRoleId": "810000000000000002",
+    "studentUrl": "https://provas.example.com/aluno/G7E7o6getpahHiTBqItEt8r6vmAPc2wtVYOBnNAdMZ0",
+    "supervisorUrl": "https://provas.example.com/professor/_hAtZRv6EuB4ZJbKYU5fifwajlAC1Qx-IcqX_wT0QMY",
     "linksAvailable": "true",
     "message": "(...)", "native": "(...)", "discordBodyJson": "(...)", "discordCallbackJson": "(...)",
     "displayText": "Sala criada. Os links vão só nesta resposta privada."
   }
 }
 ```
-
 - **Links:**
-  - `studentUrl` é o link do **aluno**; `supervisorUrl` é o link do **avaliador**. O link de fiscal pertence ao avaliador escolhido, **não** a quem clicou.
-  - Os links **só aparecem nesta resposta**: o site guarda só o hash do token.
-  - Mande cada link só para a pessoa certa, em privado. Nunca em canal público.
-- **Repetição** (mesma `idempotencyKey`, mesmo conteúdo): `200 room_already_created`, com `linksAvailable = "false"`, `replayed = "true"` e **sem** `studentUrl`/`supervisorUrl`.
-- **Sessão já aberta** para o mesmo aluno e prova: `409 room_exists`. Traz `roomId` e `canRegenerate = "true"`; use a regeneração abaixo.
+  - `studentUrl` é o link do **aluno**; `supervisorUrl` é o link do **avaliador** (o escolhido, não quem clicou);
+  - **só aparecem nesta resposta**;
+  - mande cada link só para a pessoa certa, em privado.
+- **Repetição** (mesma `idempotencyKey`): `200 room_already_created`, com `linksAvailable = "false"` e sem links.
+- **Sessão já aberta** para o mesmo aluno e prova: `409 room_exists` (`roomId`, `canRegenerate = "true"`).
 
-### Opcional: checar antes de criar
-**`POST /dafp/rooms/prepare`** — mesmo body, sem `idempotencyKey`. Não cria nada.
-- Resposta `200 ready` com `studentDiscordId`, `studentMention`, `supervisorDiscordId`, `supervisorMention`, `examId`, `examSlug` e `examName`.
-- Ou os mesmos erros da criação (`room_exists`, `exam_not_dafp`...).
-- Também serve para "acordar" o site no plano gratuito.
-
-### Regenerar links de uma sessão DAFP
-**`POST /dafp/rooms/{sessionId}/regenerate-links`** — body: identificação + `idempotencyKey`.
-- Novo link do aluno e novo link do **mesmo avaliador**; os antigos param de funcionar.
-- Resposta `200 links_regenerated` com `studentUrl`, `supervisorUrl` e `supervisor*`.
-- Sessão TCEL nesta rota → `409 session_not_dafp`.
+**Outras rotas da sessão:**
+- **`POST /dafp/rooms/prepare`:** mesmo body, sem `idempotencyKey`. Não cria nada; responde `200 ready` ou os mesmos erros da criação.
+- **`POST /dafp/rooms/{sessionId}/regenerate-links`:** body = identificação + `idempotencyKey`. Gera novos links; os antigos param de funcionar. O avaliador continua o mesmo.
 
 ---
 
-## D. Nomes dos campos (DAFP)
+## D. Campos da sessão / resultado DAFP
 
-**Criação da sessão, consulta da sessão, lista de resultados e notificação usam os mesmos nomes.**
+A consulta da sessão, a lista de resultados e a reserva (`claim`) de avisos DAFP **usam os mesmos nomes**.
 
 | O quê | Campo |
 |---|---|
 | ID da sessão | `sessionId` (= `roomId`) |
-| ID da tentativa (a prova feita) | `attemptId` (vazio antes de o aluno começar) |
+| ID da tentativa | `attemptId` (vazio antes de o aluno começar) |
 | Status da sessão | `sessionStatus`: `CRIADA` \| `EM_ANDAMENTO` \| `FINALIZADA` \| `ENCERRADA` |
-| ID do aluno | `studentDiscordId` |
-| Menção do aluno | `studentMention` (`<@ID>`) |
-| Nome do aluno | `studentDisplayName` |
-| Foto do aluno | `studentAvatarUrl` (vazio se não enviada) |
-| ID do avaliador | `supervisorDiscordId` |
-| Menção do avaliador | `supervisorMention` (`<@ID>`) |
-| Nome do avaliador | `supervisorDisplayName` |
-| ID da prova | `examId` |
-| Nome da prova | `examName` |
-| Slug da prova | `examSlug` |
-| Grupo | `examGroup` (`DAFP`) |
-| Link do aluno | `studentUrl` (**só** na criação/regeneração) |
-| Link do avaliador | `supervisorUrl` (**só** na criação/regeneração) |
-| Nota | `score` (texto, ex.: `8`) |
-| Nota máxima | `maxScore` (ex.: `10`); na criação: `examMaxScore` |
-| Nota formatada | `scoreText` (ex.: `8/10`) |
-| Aprovação automática | `autoApproval` (`"true"`/`"false"`) |
-| Nota mínima | `passingScore` |
-| Aprovado/reprovado | `resultStatus`: `APROVADO` \| `REPROVADO` \| `NAO_APLICAVEL` (sem aprovação automática) |
-| Aprovado? (booleano) | `passed` (`"true"`/`"false"`; vazio sem aprovação automática) |
-| ID do cargo do resultado | `resultRoleId` (o de aprovado ou o de reprovado; vazio sem aprovação automática) |
-| ID do cargo de aprovado | `approvedRoleId` |
-| ID do cargo de reprovado | `failedRoleId` |
-| ID do canal do resultado | `resultChannelId` (o da prova; se vazio, o **canal padrão DAFP**) |
+| Aluno | `studentDiscordId`, `studentMention` (`<@ID>`), `studentDisplayName`, `studentAvatarUrl` |
+| Avaliador | `supervisorDiscordId`, `supervisorMention` (`<@ID>`), `supervisorDisplayName` |
+| Prova | `examId`, `examSlug`, `examName`, `examGroup` (`DAFP`) |
+| Links | `studentUrl`, `supervisorUrl` (**só** na criação/regeneração) |
+| Nota | `score`, `maxScore`, `scoreText` (ex.: `8/10`) |
+| Aprovação automática | `autoApproval` (`"true"`/`"false"`), `passingScore` |
+| Resultado | `resultStatus`: `APROVADO` \| `REPROVADO` \| `NAO_APLICAVEL`; `passed` (`"true"`/`"false"`; vazio sem aprovação automática) |
+| **Gabarito** | **`perfectScore`**: `"true"` \| `"false"` (vazio antes de finalizar) |
+| Como terminou | `finishReason`: `FINALIZADA_PELO_ALUNO` \| `TEMPO_ESGOTADO` \| `ENCERRADA_PELO_ADMIN` |
+| Cargo de aprovado desta prova | `approvedRoleId`; `resultRoleId` = o cargo de aprovado **só se aprovado** (vazio caso contrário) |
+| Cargos globais DAFP (configuração atual) | **`dafpBaseRoleId`** (Role base) e **`dafpPerfectScoreRoleId`** (Mérito em Proficiência) |
+| Canal do resultado | `resultChannelId` (o da prova; se vazio, o **canal padrão DAFP**) |
 | Finalizada em | `finishedAt` (ISO 8601, UTC) e `finishedAtText` (horário de Brasília) |
 | Resultado já publicado pelo webhook? | `resultPublished` (`"true"`/`"false"`) |
+| **Ações de cargo** | `roleActionsPhase` (`START` \| `FINISH` \| vazio), `roleActions` (lista) e os campos fixos `roleAction{1,2,3}Enabled`, `roleAction{1,2,3}Type`, `roleAction{1,2,3}RoleId`, `roleAction{1,2,3}MemberDiscordId` (seção E) |
+| **LEGADO** | `failedRoleId` (sempre vazio em resultados novos); `applyRole` / `roleId` / `memberDiscordId` (só no `claim`, ver seção I) |
 
-### Regras da nota e da aprovação (calculadas SÓ no servidor)
-- **Nota** = acertos × pontos por questão da prova. A **nota máxima** = questões sorteadas × pontos por questão.
-- **Aprovação:**
-  - com **aprovação automática = Sim**: `APROVADO` se `nota >= notaMinima`; senão `REPROVADO`. Nota **igual** à mínima **aprova** (testado). Não há porcentagem: a nota mínima está na **mesma escala da nota**;
-  - com **aprovação automática = Não**: `resultStatus = "NAO_APLICAVEL"`, e `passed` e `resultRoleId` ficam vazios.
-- **Cargo:** aprovado → `resultRoleId = approvedRoleId`; reprovado → `resultRoleId = failedRoleId`. Cada prova tem os seus cargos, configurados no painel. Nenhum ID está fixo no código.
-- **Congelado na finalização:** a decisão é gravada no resultado **uma vez**, no momento da finalização, com a configuração da prova naquele instante.
-  - Mudar a nota mínima ou os cargos depois **não** reescreve resultados antigos.
-  - Pontos de prova oral lançados depois no admin **não** alteram a aprovação.
-- **Nada vem do navegador:** a nota, a aprovação e o cargo nunca vêm do navegador nem do BotGhost. O servidor corrige a partir das respostas gravadas.
+### Regras da nota, aprovação e gabarito (calculadas SÓ no servidor)
+- **Nota** = acertos × pontos por questão. A **nota máxima** = questões sorteadas × pontos por questão.
+- **Aprovação automática = Sim:** `APROVADO` se `nota >= notaMinima`; senão `REPROVADO`. Nota **igual** à mínima **aprova**. Não há porcentagem.
+- **Aprovação automática = Não:** `resultStatus = "NAO_APLICAVEL"`.
+- **Gabarito:** `perfectScore = "true"` quando `nota == nota máxima`, comparado com 2 casas decimais, a mesma precisão das notas do sistema. É **independente** da aprovação automática. O navegador e o BotGhost nunca informam isso.
+- **Cancelamento:** prova DAFP encerrada pelo admin (`finishReason = ENCERRADA_PELO_ADMIN`) conta como **cancelamento**: `resultStatus = NAO_APLICAVEL` e `perfectScore = "false"`. Só a Role base volta.
+- **Congelado na finalização:** tudo é decidido **uma vez**, na finalização, e gravado no resultado. Mudar a configuração da prova ou dos cargos depois **não** reescreve resultados antigos.
 
 ---
 
-## E. Consulta de resultado
+## E. Ciclo de cargos do DAFP
 
-### Uma sessão
-**`GET /dafp/sessions/{sessionId}`**
-- Headers: `Authorization`. URL Params: identificação.
-- Só lê o resultado gravado: **nunca recalcula**. Pode ser chamada quantas vezes quiser.
+### Os três cargos
+| Cargo | Onde se configura | Quando |
+|---|---|---|
+| **Role base** (ex.: Bombeiros Militares da Fluxo) | aba **Integração BotGhost → Provas DAFP → Cargos automáticos DAFP → "Role obrigatória durante o fluxo"** (global) | **REMOVIDA** quando o aluno **inicia** a prova; **ADICIONADA de volta** em **qualquer** encerramento definitivo (aprovado, reprovado, tempo esgotado, encerrado pelo admin, resultado excluído) |
+| **Cargo de aprovado da prova** (ex.: Aprovado Prova Aspirante) | cada prova → **⚙ Integração / Resultado → "ID do cargo de APROVADO"** | **ADICIONADO** só se `resultStatus = APROVADO` |
+| **Mérito em Proficiência** | aba **Integração BotGhost → Provas DAFP → Cargos automáticos DAFP → "Mérito em Proficiência"** (global) | **ADICIONADO** só se `perfectScore = "true"` |
 
-Resposta real, **antes** de o aluno começar (`200 dafp_session`):
+- **Reprovado não recebe cargo.** O antigo "cargo de reprovado" é legado: não aparece mais no painel e não é usado.
+- **Nenhum ID de cargo está fixo no código:** todos são configurados no painel.
+
+### Momentos
+1. **Sessão criada** (`CRIADA`): **nenhuma** ação de cargo.
+2. **Aluno inicia a prova de verdade** (`CRIADA → EM_ANDAMENTO`): é quando ele confirma o compartilhamento de tela e a tentativa é criada.
+   - O site cria **UM** aviso `dafp_started` → **REMOVE** a Role base.
+   - Recarregar a página, reconectar ou clicar de novo **não** cria outro (a chave do aviso é única por tentativa).
+   - Abrir o link sem começar a prova não remove nada.
+3. **Encerramento definitivo** (`FINALIZADA`, ou resultado excluído):
+   - o aviso de resultado (`result`) traz as ações de fim, com a mensagem;
+   - se o resultado foi excluído antes de publicar, o aviso vem sem mensagem e só devolve a base.
+
+### Posições FIXAS das ações
+| Posição | Início (`DAFP_STARTED`) | Fim (`DAFP_FINISHED`) |
+|---|---|---|
+| **1** | `REMOVE` Role base | `ADD` Role base (**sempre**) |
+| **2** | — | `ADD` cargo de aprovado da prova (só `APROVADO`) |
+| **3** | — | `ADD` Mérito em Proficiência (só `perfectScore = "true"`) |
+
+- Posição sem ação → `roleActionNEnabled = "false"` e os demais campos vazios.
+- `roleActionNMemberDiscordId` = sempre o ID do **aluno**.
+
+### Cenários (Aspirante, máximo 10, mínimo 7)
+| Situação | `resultStatus` | `perfectScore` | Ação 1 | Ação 2 | Ação 3 |
+|---|---|---|---|---|---|
+| Criou a sala | — | — | — | — | — |
+| Iniciou a prova | — | — | REMOVE base | — | — |
+| 6/10 | REPROVADO | false | ADD base | — | — |
+| 7/10 | APROVADO | false | ADD base | ADD aprovado | — |
+| 8/10 | APROVADO | false | ADD base | ADD aprovado | — |
+| 10/10 | APROVADO | true | ADD base | ADD aprovado | ADD Mérito |
+| Sem aprovação automática, 10/10 | NAO_APLICAVEL | true | ADD base | — | ADD Mérito |
+| Sem aprovação automática, 5/10 | NAO_APLICAVEL | false | ADD base | — | — |
+| Iniciou e o admin encerrou a sala | NAO_APLICAVEL | false | ADD base | — | — |
+| Iniciou e o resultado foi excluído | — | — | ADD base (sem mensagem) | — | — |
+
+Se um cargo não estiver configurado no painel, a posição correspondente vem desligada (`"false"`).
+
+### Garantias
+- **Uma ação por fase:**
+  - um único aviso de início por tentativa;
+  - um único aviso de resultado por tentativa;
+  - as ações de fim vêm **só até a primeira entrega confirmada**. Edições posteriores (ex.: prova oral lançada no admin, resultado excluído depois de publicado) editam a mensagem com as posições 1–3 desligadas.
+- **Finalização duplicada** (clique duplo, recarregar, tempo esgotado ao mesmo tempo, admin encerrando) gera **um** resultado e **um** aviso (testado com chamadas simultâneas).
+- **Ordem:** a devolução nunca passa na frente da remoção.
+  - Se a prova terminar antes de o BotGhost executar a remoção do início, a remoção é **cancelada** (a devolução já deixa o aluno com a Role).
+  - Se a remoção estiver sendo executada naquele instante, o `claim` do resultado responde `409 not_ready` e o site tenta de novo sozinho em seguida.
+- **Falha no Discord/BotGhost não desfaz a prova.**
+  - A tentativa continua iniciada, e a nota e a aprovação continuam gravadas.
+  - O aviso segue a política da fila: nova tentativa com espera; depois de esgotar, fica "com falha" e reprocessável pela aba Integração → **Reprocessar agora**.
+  - O erro fica registrado (`lastError`) para diagnóstico.
+- **Estado desejado, não erro:** adicionar um cargo que o aluno já tem ou remover um que ele não tem deixa o mesmo estado final. Por isso o site pode repetir uma ação de cargo com segurança (ex.: reserva vencida sem confirmação).
+- **Rede de segurança:** se o site cair entre o início da prova e a criação do aviso (ou entre a exclusão e o aviso de devolução), a reconciliação periódica recria o aviso que faltou, sem duplicar.
+
+---
+
+## F. Fila de avisos: webhook → claim → ações → ack
+
+É a **mesma arquitetura** já usada pelo TCEL; não é um sistema paralelo.
+
+### 1. O site dispara o webhook do BotGhost
+`POST https://api.botghost.com/webhook/{bot_id}/{event_id}` — o evento **"TCEL avisos"** já existente, configurado com `BOTGHOST_WEBHOOK_URL` e `BOTGHOST_WEBHOOK_API_KEY` no Render.
+
+As variáveis enviadas ao evento:
+- `{tcel_notification_id}`: ID do aviso;
+- `{tcel_notification_kind}`: `dafp_started` (início DAFP), `result` (resultado TCEL **ou** DAFP), `promotion_announcement`, `template_test` ou `panel_update`.
+
+### 2. O evento reserva o aviso (claim)
+**`POST /notifications/{tcel_notification_id}/claim`**
+- Headers: `Authorization: Bearer <chave>`. Body: `{}`, sem identificação.
+- **Só com `200 claimed` o BotGhost executa alguma coisa.** Qualquer outra resposta = **não fazer nada** (nem `ack`):
+
+| HTTP | `code` | Significado |
+|---|---|---|
+| 409 | `already_claimed` | outra execução está cuidando |
+| 409 | `already_delivered` | já foi entregue |
+| 409 | `not_ready` | ainda não pode (prova não finalizada, ou remoção do início em andamento); o site redispara depois sozinho |
+| 409 | `ambiguous_needs_review` | o admin precisa conferir o canal |
+| 409 | `failed` | falhou; reprocessar no painel |
+| 409 | `config_missing` | canal de resultados DAFP não configurado; o site redispara depois |
+| 410 | `cancelled` / `nothing_to_do` | nada a fazer (ex.: a prova terminou antes da remoção do início) |
+| 404 | `not_found` | aviso inexistente |
+
+**Campos de controle de TODA reserva `200 claimed`:**
+
+| Campo | Valores / uso |
+|---|---|
+| `notificationId`, `leaseToken`, `leaseUntil` | reserva (a reserva vale 2 minutos) |
+| `kind` | `dafp_started` \| `result` \| `promotion_announcement` \| `template_test` \| `panel_update` |
+| **`notificationActionType`** | **`DAFP_STARTED`** \| **`DAFP_FINISHED`** \| `TCEL_RESULT` \| `PROMOTION_ANNOUNCEMENT` \| `TEMPLATE_TEST` \| `PANEL_UPDATE` |
+| **`publishMessage`** | `"true"` = publicar/editar a mensagem; `"false"` = **não publicar nada**, só executar os cargos e confirmar |
+| `action` | `send` (nova mensagem) \| `edit` (editar `messageId`) \| `none` (sem mensagem) |
+| `channelId`, `messageId`, `keepComponents`, `templateKey` | onde e o que publicar |
+| `message`, `native.*`, `discordBodyJson` | a mensagem pronta |
+| `roleActionsPhase` | `START` \| `FINISH` \| vazio (sem ações) |
+| `roleActions` | lista `[{ "action": "ADD"/"REMOVE", "roleId", "memberDiscordId" }]`, só as ações ativas |
+| `roleAction1Enabled` … `roleAction3MemberDiscordId` | campos fixos por posição (seção E) |
+| `applyRole`, `roleId`, `memberDiscordId` | **LEGADO** (seção I) |
+
+Os avisos DAFP trazem também todos os campos da seção D.
+
+### 3a. Início — `DAFP_STARTED`
+Resposta real do claim (`kind = dafp_started`):
 ```json
 {
-  "ok": true, "code": "dafp_session", "message": "Sessão criada: o aluno ainda não começou a prova.",
+  "ok": true, "code": "claimed", "message": "Notificação reservada.",
   "data": {
-    "sessionId": "6ab77b1ad00dfe16237fd9f9", "attemptId": "", "sessionStatus": "CRIADA",
-    "examId": "6ab77b19d00dfe16237fd9ad", "examSlug": "aspirante", "examName": "Aspirante", "examGroup": "DAFP",
-    "studentDiscordId": "700000000000000101", "studentMention": "<@700000000000000101>", "studentDisplayName": "Recruta Lima",
-    "studentAvatarUrl": "https://cdn.discordapp.com/avatars/700000000000000101/0123456789abcdef0123456789abcdef.png",
+    "notificationId": "6ab7844fc58518746e9be9f6",
+    "kind": "dafp_started",
+    "leaseToken": "42d5ef4e87f72490c37943fbb750e4e9",
+    "leaseUntil": "2026-09-26T08:39:35.315Z",
+    "action": "none",
+    "channelId": "",
+    "messageId": "",
+    "keepComponents": "false",
+    "renderedRevision": "",
+    "templateKey": "",
+    "message": { "content": "", "embeds": [], "allowed_mentions": { "parse": [], "users": [], "roles": [] } },
+    "native": {}, "discordBodyJson": "",
+    "displayText": "Notificação reservada.",
+    "notificationActionType": "DAFP_STARTED",
+    "publishMessage": "false",
+    "applyRole": "false", "roleId": "", "memberDiscordId": "",
+    "sessionId": "6ab7844fc58518746e9be9e6", "attemptId": "6ab7844fc58518746e9be9f1", "sessionStatus": "EM_ANDAMENTO",
+    "examId": "6ab7844fc58518746e9be9c5", "examSlug": "aspirante", "examName": "Aspirante", "examGroup": "DAFP",
+    "studentDiscordId": "700000000000000101", "studentMention": "<@700000000000000101>", "studentDisplayName": "Recruta Lima", "studentAvatarUrl": "",
     "supervisorDiscordId": "700000000000000202", "supervisorMention": "<@700000000000000202>", "supervisorDisplayName": "Cap Souza",
     "score": "", "maxScore": "10", "scoreText": "",
     "autoApproval": "", "passingScore": "", "resultStatus": "", "passed": "",
     "resultRoleId": "", "approvedRoleId": "", "failedRoleId": "", "resultChannelId": "600000000000000009",
-    "finishedAt": "", "finishedAtText": "", "resultPublished": "false",
-    "displayText": "Sessão criada: o aluno ainda não começou a prova."
+    "finishedAt": "", "finishedAtText": "", "resultPublished": "false", "perfectScore": "", "finishReason": "",
+    "dafpBaseRoleId": "810000000000000001", "dafpPerfectScoreRoleId": "810000000000000002",
+    "roleActionsPhase": "START",
+    "roleActions": [ { "action": "REMOVE", "roleId": "810000000000000001", "memberDiscordId": "700000000000000101" } ],
+    "roleAction1Enabled": "true", "roleAction1Type": "REMOVE", "roleAction1RoleId": "810000000000000001", "roleAction1MemberDiscordId": "700000000000000101",
+    "roleAction2Enabled": "false", "roleAction2Type": "", "roleAction2RoleId": "", "roleAction2MemberDiscordId": "",
+    "roleAction3Enabled": "false", "roleAction3Type": "", "roleAction3RoleId": "", "roleAction3MemberDiscordId": ""
+  }
+}
+```
+- **O que o BotGhost faz:**
+  1. **remover** o cargo `roleAction1RoleId` do membro `roleAction1MemberDiscordId`;
+  2. **não publicar nada**;
+  3. confirmar com `ack` **sem `messageId`**.
+- **Se a remoção falhar** (sem permissão, cargo acima do bot, Discord fora): confirme com `outcome: "failed"` e o motivo. A prova **não** é afetada.
+
+### 3b. Fim — `DAFP_FINISHED`
+Resposta real do claim, com **10/10 (gabarito)**:
+```json
+{
+  "ok": true, "code": "claimed", "message": "Notificação reservada.",
+  "data": {
+    "notificationId": "6ab7844fc58518746e9bea14",
+    "kind": "result",
+    "leaseToken": "cbc369e09d4a0591dd00f7cd3dfe31c9",
+    "leaseUntil": "2026-09-26T08:39:35.422Z",
+    "action": "send",
+    "channelId": "600000000000000009",
+    "messageId": "",
+    "keepComponents": "false",
+    "renderedRevision": "1",
+    "templateKey": "dafp_result",
+    "message": "(...)", "native": "(...)", "discordBodyJson": "(...)",
+    "displayText": "RESULTADO DA PROVA",
+    "notificationActionType": "DAFP_FINISHED",
+    "publishMessage": "true",
+    "applyRole": "true", "roleId": "810000000000000003", "memberDiscordId": "700000000000000101",
+    "sessionId": "6ab7844fc58518746e9be9e6", "attemptId": "6ab7844fc58518746e9be9f1", "sessionStatus": "FINALIZADA",
+    "examId": "6ab7844fc58518746e9be9c5", "examSlug": "aspirante", "examName": "Aspirante", "examGroup": "DAFP",
+    "studentDiscordId": "700000000000000101", "studentMention": "<@700000000000000101>", "studentDisplayName": "Recruta Lima", "studentAvatarUrl": "",
+    "supervisorDiscordId": "700000000000000202", "supervisorMention": "<@700000000000000202>", "supervisorDisplayName": "Cap Souza",
+    "score": "10", "maxScore": "10", "scoreText": "10/10",
+    "autoApproval": "true", "passingScore": "7", "resultStatus": "APROVADO", "passed": "true",
+    "resultRoleId": "810000000000000003", "approvedRoleId": "810000000000000003", "failedRoleId": "",
+    "resultChannelId": "600000000000000009",
+    "finishedAt": "2026-09-26T08:37:35.390Z", "finishedAtText": "26/09/2026, 05:37",
+    "resultPublished": "false", "perfectScore": "true", "finishReason": "FINALIZADA_PELO_ALUNO",
+    "dafpBaseRoleId": "810000000000000001", "dafpPerfectScoreRoleId": "810000000000000002",
+    "roleActionsPhase": "FINISH",
+    "roleActions": [
+      { "action": "ADD", "roleId": "810000000000000001", "memberDiscordId": "700000000000000101" },
+      { "action": "ADD", "roleId": "810000000000000003", "memberDiscordId": "700000000000000101" },
+      { "action": "ADD", "roleId": "810000000000000002", "memberDiscordId": "700000000000000101" }
+    ],
+    "roleAction1Enabled": "true", "roleAction1Type": "ADD", "roleAction1RoleId": "810000000000000001", "roleAction1MemberDiscordId": "700000000000000101",
+    "roleAction2Enabled": "true", "roleAction2Type": "ADD", "roleAction2RoleId": "810000000000000003", "roleAction2MemberDiscordId": "700000000000000101",
+    "roleAction3Enabled": "true", "roleAction3Type": "ADD", "roleAction3RoleId": "810000000000000002", "roleAction3MemberDiscordId": "700000000000000101"
   }
 }
 ```
 
-Resposta real, **depois** de finalizada (8 de 10, mínimo 7):
+Nos outros resultados, a única diferença é o bloco de cargos, conforme a tabela da seção E. Respostas reais:
+- **8/10 (aprovado):**
+  - `perfectScore = "false"`;
+  - `roleAction1` = `ADD 810000000000000001`;
+  - `roleAction2` = `ADD 810000000000000003`;
+  - `roleAction3Enabled = "false"`.
+- **6/10 (reprovado):**
+  - `resultStatus = "REPROVADO"`, `passed = "false"`, `resultRoleId = ""`;
+  - `roleAction1` = `ADD 810000000000000001`;
+  - `roleAction2Enabled = "false"` e `roleAction3Enabled = "false"`;
+  - legado: `applyRole = "false"`, `roleId = ""`.
+
+Mensagem pronta real (`data.message`), modelo **"Resultado DAFP (canal)"**:
 ```json
 {
-  "ok": true, "code": "dafp_session", "message": "Prova finalizada: 8/10 — APROVADO.",
+  "content": "",
+  "embeds": [{
+    "title": "RESULTADO DA PROVA", "color": 14427686,
+    "footer": { "text": "Finalizada em 26/09/2026, 05:37" },
+    "fields": [
+      { "name": "Aluno", "value": "<@700000000000000101>", "inline": true },
+      { "name": "Avaliador", "value": "<@700000000000000202>", "inline": true },
+      { "name": "Prova", "value": "Aspirante", "inline": false },
+      { "name": "Nota", "value": "10/10", "inline": true },
+      { "name": "Resultado", "value": "APROVADO", "inline": true }
+    ]
+  }],
+  "allowed_mentions": { "parse": [], "users": [], "roles": [] }
+}
+```
+- O modelo é editável no painel: aba **Mensagens do Bot** → "Resultado DAFP (canal)".
+- **Variáveis do modelo:**
+  - aluno: `[[aluno.mencao]]`, `[[aluno.nome]]`, `[[aluno.discordId]]`;
+  - avaliador: `[[avaliador.mencao]]`, `[[avaliador.nome]]`, `[[avaliador.discordId]]`;
+  - prova e nota: `[[prova.nome]]`, `[[resultado.nota]]`, `[[resultado.total]]`;
+  - aprovação: `[[resultado.status]]`, `[[resultado.notaMinima]]`, `[[resultado.cargoMencao]]`;
+  - gabarito: **`[[resultado.gabaritou]]`** (`Sim`/`Não`); a mensagem padrão não usa, fica disponível para editar;
+  - outras: `[[resultado.data]]`, `[[resultado.situacao]]`, `[[resultado.tentativa]]`, `[[data]]`.
+
+**O que o BotGhost faz num `DAFP_FINISHED` com `publishMessage = "true"`:**
+1. se `roleAction1Enabled = "true"` → **adicionar** `roleAction1RoleId` ao membro `roleAction1MemberDiscordId`;
+2. se `roleAction2Enabled = "true"` → **adicionar** `roleAction2RoleId` ao mesmo membro;
+3. se `roleAction3Enabled = "true"` → **adicionar** `roleAction3RoleId` ao mesmo membro;
+4. **publicar** a mensagem:
+   - `action = "send"` → nova mensagem no `channelId`;
+   - `action = "edit"` → editar o `messageId` no `channelId`;
+5. confirmar com `ack` **com o `messageId`** da mensagem.
+
+**Resultado excluído antes de publicar** (real): `notificationActionType = "DAFP_FINISHED"`, `publishMessage = "false"`, `action = "none"`, `channelId = ""`, `roleAction1` = `ADD` Role base, e posições 2 e 3 desligadas.
+- O BotGhost só adiciona a Role base e confirma **sem** `messageId`.
+
+**Edições depois da primeira entrega** (`action = "edit"`): as posições 1–3 vêm desligadas. O BotGhost só edita a mensagem.
+
+### 4. Confirmação (ack)
+**`POST /notifications/{tcel_notification_id}/ack`** (Headers: `Authorization`; `Content-Type: application/json`).
+
+| Situação | Body |
+|---|---|
+| Deu certo **com** mensagem (`publishMessage = "true"`) | `{ "leaseToken": "<data.leaseToken>", "outcome": "delivered", "messageId": "<ID real da mensagem>", "channelId": "<canal>" }` |
+| Deu certo **sem** mensagem (`publishMessage = "false"`) | `{ "leaseToken": "<data.leaseToken>", "outcome": "delivered" }` |
+| Falhou (cargo ou mensagem) | `{ "leaseToken": "<data.leaseToken>", "outcome": "failed", "error": "<motivo curto>" }` |
+
+**Respostas:**
+- `200 acked`, por exemplo, sem mensagem:
+  ```json
+  { "ok": true, "code": "acked", "message": "Entrega confirmada.", "data": { "notificationId": "6ab7844fc58518746e9be9f6", "messageId": "", "status": "delivered", "displayText": "Entrega confirmada." } }
+  ```
+- `200 already_acked`: `ack` repetido; nada muda;
+- `200 will_retry` / `200 failed`: falha registrada, com nova tentativa ou esgotada;
+- `400 invalid_message_id`: aviso **com** mensagem confirmado sem `messageId`;
+- `409 lease_mismatch`: a reserva venceu ou foi assumida por outra execução.
+  - Reserva vencida de aviso **só de cargos**: volta para a fila e é refeita (seguro).
+  - Reserva vencida de **envio de mensagem**: fica "ambígua", e o admin decide no painel.
+
+---
+
+## G. Consulta de resultado (sem fila)
+
+### Uma sessão
+**`GET /dafp/sessions/{sessionId}`**
+- Headers: `Authorization`. URL Params: identificação.
+- Só lê: **nunca recalcula**.
+- Traz os campos da seção D e as ações da **fase atual**:
+  - `START` com a prova em andamento;
+  - `FINISH` depois do fim;
+  - vazio na sessão criada.
+
+Resposta real, **em andamento** (trechos):
+```json
+{
+  "ok": true, "code": "dafp_session", "message": "Prova em andamento.",
   "data": {
-    "sessionId": "6ab77b1ad00dfe16237fd9f9", "attemptId": "6ab77b1ad00dfe16237fda14", "sessionStatus": "FINALIZADA",
-    "examId": "6ab77b19d00dfe16237fd9ad", "examSlug": "aspirante", "examName": "Aspirante", "examGroup": "DAFP",
-    "studentDiscordId": "700000000000000101", "studentMention": "<@700000000000000101>", "studentDisplayName": "Recruta Lima",
-    "studentAvatarUrl": "https://cdn.discordapp.com/avatars/700000000000000101/0123456789abcdef0123456789abcdef.png",
-    "supervisorDiscordId": "700000000000000202", "supervisorMention": "<@700000000000000202>", "supervisorDisplayName": "Cap Souza",
-    "score": "8", "maxScore": "10", "scoreText": "8/10",
-    "autoApproval": "true", "passingScore": "7", "resultStatus": "APROVADO", "passed": "true",
-    "resultRoleId": "800000000000000001", "approvedRoleId": "800000000000000001", "failedRoleId": "800000000000000002",
-    "resultChannelId": "600000000000000009",
-    "finishedAt": "2026-09-26T07:58:18.193Z", "finishedAtText": "26/09/2026, 04:58",
-    "resultPublished": "false",
-    "displayText": "Prova finalizada: 8/10 — APROVADO."
+    "sessionId": "6ab7844fc58518746e9be9e6", "attemptId": "6ab7844fc58518746e9be9f1", "sessionStatus": "EM_ANDAMENTO",
+    "examSlug": "aspirante", "examName": "Aspirante",
+    "studentDiscordId": "700000000000000101", "supervisorDiscordId": "700000000000000202",
+    "score": "", "maxScore": "10", "resultStatus": "", "perfectScore": "", "finishReason": "",
+    "dafpBaseRoleId": "810000000000000001", "dafpPerfectScoreRoleId": "810000000000000002",
+    "roleActionsPhase": "START",
+    "roleActions": [ { "action": "REMOVE", "roleId": "810000000000000001", "memberDiscordId": "700000000000000101" } ],
+    "roleAction1Enabled": "true", "roleAction1Type": "REMOVE", "roleAction1RoleId": "810000000000000001", "roleAction1MemberDiscordId": "700000000000000101",
+    "roleAction2Enabled": "false", "roleAction3Enabled": "false",
+    "displayText": "Prova em andamento."
   }
 }
 ```
-Erros: `404 session_not_found` e `409 session_not_dafp` (a sessão é TCEL).
+
+Resposta real, **finalizada com gabarito** (trechos):
+```json
+{
+  "ok": true, "code": "dafp_session", "message": "Prova finalizada: 10/10 — APROVADO.",
+  "data": {
+    "sessionStatus": "FINALIZADA", "scoreText": "10/10", "autoApproval": "true", "passingScore": "7",
+    "resultStatus": "APROVADO", "passed": "true", "perfectScore": "true", "finishReason": "FINALIZADA_PELO_ALUNO",
+    "resultRoleId": "810000000000000003", "resultChannelId": "600000000000000009", "resultPublished": "true",
+    "roleActionsPhase": "FINISH",
+    "roleAction1Type": "ADD", "roleAction1RoleId": "810000000000000001",
+    "roleAction2Type": "ADD", "roleAction2RoleId": "810000000000000003",
+    "roleAction3Type": "ADD", "roleAction3RoleId": "810000000000000002",
+    "displayText": "Prova finalizada: 10/10 — APROVADO."
+  }
+}
+```
+
+**Erros:** `404 session_not_found` e `409 session_not_dafp`.
+
+**Atenção:** a consulta **não** marca nada como executado. O caminho recomendado para aplicar cargos e publicar é a fila (seção F), que garante "uma vez só". Use a consulta para mostrar ou conferir. `resultPublished = "true"` indica que o webhook já publicou e aplicou.
 
 ### Lista de resultados DAFP
 **`GET /dafp/results`**
@@ -415,183 +651,77 @@ Erros: `404 session_not_found` e `409 session_not_dafp` (a sessão é TCEL).
   - `page` (começa em 0);
   - `pageSize` (1–25, padrão 10).
 - **O que lista:** só resultados DAFP finalizados, não excluídos e não arquivados, do mais recente ao mais antigo.
-- **Com exatamente 1 item na página** (`pageSize=1`), os campos da prova também vêm soltos com prefixo `result`, prontos para um embed:
-  - `resultSessionId`, `resultScoreText`, `resultStudentMention`, `resultSupervisorMention`, `resultExamName`...;
-  - `resultStatus`, `resultRoleId` e `resultChannelId` mantêm o próprio nome.
-
-Resposta real (`pageSize=1`, trechos):
-```json
-{
-  "ok": true, "code": "dafp_results", "message": "Página 1 de 1.",
-  "data": {
-    "total": "1", "page": "0", "pageNumber": "1", "pages": "1", "pageSize": "1",
-    "hasPrevious": "false", "hasNext": "false", "previousPage": "0", "nextPage": "0",
-    "items": [ { "sessionId": "6ab77b1ad00dfe16237fd9f9", "attemptId": "6ab77b1ad00dfe16237fda14", "sessionStatus": "FINALIZADA", "…": "mesmos campos da seção D" } ],
-    "displayText": "**1.** <@700000000000000101> · Recruta Lima — Aspirante — **8/10** — ✅ APROVADO · avaliador <@700000000000000202> · 26/09/2026\n\nPágina 1/1",
-    "resultSingle": "true",
-    "resultSessionId": "6ab77b1ad00dfe16237fd9f9", "resultAttemptId": "6ab77b1ad00dfe16237fda14", "resultSessionStatus": "FINALIZADA",
-    "resultExamId": "6ab77b19d00dfe16237fd9ad", "resultExamSlug": "aspirante", "resultExamName": "Aspirante",
-    "resultStudentDiscordId": "700000000000000101", "resultStudentMention": "<@700000000000000101>", "resultStudentDisplayName": "Recruta Lima",
-    "resultStudentAvatarUrl": "https://cdn.discordapp.com/avatars/700000000000000101/0123456789abcdef0123456789abcdef.png",
-    "resultSupervisorDiscordId": "700000000000000202", "resultSupervisorMention": "<@700000000000000202>", "resultSupervisorDisplayName": "Cap Souza",
-    "resultScore": "8", "resultMaxScore": "10", "resultScoreText": "8/10",
-    "resultAutoApproval": "true", "resultPassingScore": "7", "resultStatus": "APROVADO", "resultPassed": "true",
-    "resultRoleId": "800000000000000001", "resultApprovedRoleId": "800000000000000001", "resultFailedRoleId": "800000000000000002",
-    "resultChannelId": "600000000000000009",
-    "resultFinishedAt": "2026-09-26T07:58:18.193Z", "resultFinishedAtText": "26/09/2026, 04:58", "resultPublished": "true"
-  }
-}
-```
+- **Cada item** traz os campos da seção D, incluindo `perfectScore`, `finishReason` e as ações de fim.
+- **Com exatamente 1 item** (`pageSize=1`), os campos vêm também soltos com prefixo `result`:
+  - ex.: `resultScoreText`, `resultPerfectScore`, `resultFinishReason`, `resultSessionId`, `resultStudentMention`;
+  - `resultStatus`, `resultRoleId`, `resultChannelId` e `resultPublished` mantêm o próprio nome;
+  - com 0 ou vários itens, esses campos vêm vazios e `resultSingle = "false"`.
 
 ---
 
-## F. Como o BotGhost fica sabendo que a prova terminou
-
-**Mecanismo:** o mesmo já usado pelo TCEL. Nada novo foi inventado: é o **webhook oficial do BotGhost** com a fila do site (claim → publicar → ack).
-
-1. **O site finaliza a prova e grava o resultado.** Isso acontece quando o aluno clica em Finalizar, quando o tempo esgota ou quando o admin encerra a sala. Em seguida o site cria **um** aviso na fila.
-2. **O site dispara o webhook do BotGhost:** `POST https://api.botghost.com/webhook/{bot_id}/{event_id}`. É o mesmo evento **"TCEL avisos"** já usado (variáveis `BOTGHOST_WEBHOOK_URL` e `BOTGHOST_WEBHOOK_API_KEY` no Render), com as variáveis:
-   - `{tcel_notification_id}`: ID do aviso;
-   - `{tcel_notification_kind}`: `result` (vale para TCEL e DAFP).
-3. **O evento do BotGhost reserva o aviso:** `POST /notifications/{tcel_notification_id}/claim` (body `{}`; só a chave, sem identificação). A resposta traz:
-   - `action`: `send` (primeira vez) ou `edit` (resultado alterado depois);
-   - `channelId`: para DAFP é o canal de resultado DAFP; `messageId` (para editar);
-   - a mensagem pronta (`message` / `native` / `discordBodyJson`) do modelo **"Resultado DAFP (canal)"** (`templateKey = dafp_result`);
-   - **`applyRole`** (`"true"` só no **primeiro envio** de um resultado com cargo), **`roleId`** (o cargo a aplicar) e **`memberDiscordId`** (o aluno);
-   - todos os campos da seção D (`resultStatus`, `scoreText`, `studentMention`, `supervisorMention`...).
-4. **O evento publica a mensagem no `channelId`** e, se `applyRole = "true"`, **adiciona o cargo `roleId` ao membro `memberDiscordId`**.
-5. **O evento confirma:** `POST /notifications/{tcel_notification_id}/ack`, body:
-   ```json
-   { "leaseToken": "<data.leaseToken do claim>", "outcome": "delivered", "messageId": "<ID real da mensagem enviada>", "channelId": "<canal>" }
-   ```
-   Se falhar: `{ "leaseToken": "...", "outcome": "failed", "error": "motivo" }`. O site tenta de novo mais tarde.
-
-Resposta real do claim de um resultado DAFP (trechos):
-```json
-{
-  "ok": true, "code": "claimed", "message": "Notificação reservada.",
-  "data": {
-    "notificationId": "6ab77b1ad00dfe16237fda22", "kind": "result",
-    "leaseToken": "8714a0d9c289436a20fa6e9160bd32e6", "leaseUntil": "2026-09-26T08:00:18.223Z",
-    "action": "send", "channelId": "600000000000000009", "messageId": "", "keepComponents": "false", "renderedRevision": "1",
-    "templateKey": "dafp_result",
-    "message": "(...)", "native": "(...)", "discordBodyJson": "(...)", "displayText": "RESULTADO DA PROVA",
-    "applyRole": "true", "roleId": "800000000000000001", "memberDiscordId": "700000000000000101",
-    "sessionId": "6ab77b1ad00dfe16237fd9f9", "attemptId": "6ab77b1ad00dfe16237fda14", "sessionStatus": "FINALIZADA",
-    "examSlug": "aspirante", "examName": "Aspirante",
-    "studentMention": "<@700000000000000101>", "supervisorMention": "<@700000000000000202>",
-    "score": "8", "maxScore": "10", "scoreText": "8/10",
-    "autoApproval": "true", "passingScore": "7", "resultStatus": "APROVADO", "passed": "true",
-    "resultRoleId": "800000000000000001", "approvedRoleId": "800000000000000001", "failedRoleId": "800000000000000002",
-    "resultChannelId": "600000000000000009", "finishedAt": "2026-09-26T07:58:18.193Z", "resultPublished": "false"
-  }
-}
-```
-
-A mensagem pronta (`data.message`) do modelo padrão, real:
-```json
-{
-  "content": "",
-  "embeds": [{
-    "title": "RESULTADO DA PROVA", "color": 14427686,
-    "footer": { "text": "Finalizada em 26/09/2026, 04:58" },
-    "fields": [
-      { "name": "Aluno", "value": "<@700000000000000101>", "inline": true },
-      { "name": "Avaliador", "value": "<@700000000000000202>", "inline": true },
-      { "name": "Prova", "value": "Aspirante", "inline": false },
-      { "name": "Nota", "value": "8/10", "inline": true },
-      { "name": "Resultado", "value": "APROVADO", "inline": true }
-    ]
-  }],
-  "allowed_mentions": { "parse": [], "users": [], "roles": [] }
-}
-```
-- O texto e o visual podem ser editados no painel: aba **Mensagens do Bot** → "Resultado DAFP (canal)".
-- **Variáveis disponíveis no modelo:**
-  - aluno: `[[aluno.mencao]]`, `[[aluno.nome]]`, `[[aluno.discordId]]`;
-  - avaliador: `[[avaliador.mencao]]`, `[[avaliador.nome]]`, `[[avaliador.discordId]]`;
-  - prova e nota: `[[prova.nome]]`, `[[resultado.nota]]`, `[[resultado.total]]`;
-  - aprovação: `[[resultado.status]]`, `[[resultado.notaMinima]]`, `[[resultado.cargoMencao]]`;
-  - outras: `[[resultado.data]]`, `[[resultado.situacao]]`, `[[resultado.tentativa]]`, `[[data]]`.
-- Em vez da mensagem pronta, você pode montar o seu próprio embed com os campos da seção D, vindos do claim.
-
-**Garantias:**
-- Só **um** executor recebe o aviso (reserva atômica).
-- Um `ack` repetido não duplica nada.
-- Se a reserva de um **envio** vencer sem `ack`, o aviso fica "ambíguo" e **nunca** é reenviado sozinho: o admin resolve na aba Integração.
-- Editar o resultado depois (ex.: excluir no admin) gera `action = "edit"` com `applyRole = "false"`. Cargo **nunca** é reaplicado em edição.
-
-**Alternativa sem o módulo Webhooks (ou para conferir na hora):**
-- Um botão manual do professor pode consultar `GET /dafp/sessions/{sessionId}`. Quando `sessionStatus = "FINALIZADA"`, o resultado está pronto, com `resultRoleId` e `resultChannelId`.
-- **Não há polling automático no site:** o BotGhost não é chamado periodicamente.
-- Se usar este caminho para publicar e aplicar o cargo, confira `resultPublished`: `"true"` = o webhook já publicou. Evite publicar duas vezes. Adicionar um cargo que o membro já tem não muda nada no Discord.
-
-**Idempotência da finalização:**
-- A passagem "em andamento → finalizada" é **uma escrita condicional única** no banco.
-- Clique duplo em Finalizar, refresh, reconexão, tempo esgotado ao mesmo tempo que o botão, ou admin encerrando a sala: **só uma** finalização acontece. Nota, aprovação, evento e aviso são gerados **uma vez** (testado com chamadas simultâneas).
-- Consultas posteriores só leem o resultado gravado.
-
----
-
-## G. Códigos HTTP (rotas DAFP)
+## H. Códigos HTTP (rotas DAFP)
 
 | HTTP | `code` | Quando |
 |---|---|---|
-| 200 | `dafp_exams`, `dafp_exam`, `ready`, `dafp_session`, `dafp_results`, `dafp_results_empty`, `links_regenerated`, `room_already_created` (repetição), `claimed`, `acked`, `already_acked` | sucesso |
+| 200 | `dafp_exams`, `dafp_exam`, `ready`, `dafp_session`, `dafp_results`, `dafp_results_empty`, `links_regenerated`, `room_already_created` (repetição), `claimed`, `acked`, `already_acked`, `will_retry` | sucesso |
 | 201 | `room_created` | sessão criada (links só aqui) |
-| 400 | `invalid_field` | ID como número, ID malformado, data inválida, `idempotencyKey` inválida |
-| 400 | `invalid_user` | aluno/avaliador não é ID nem menção |
-| 400 | `supervisor_required` / `supervisor_is_student` | avaliador ausente / avaliador = aluno |
-| 400 | `exam_required` | prova não informada |
-| 400 | `idempotency_key_required` / `invalid_json` | chave ausente / corpo não é JSON |
+| 400 | `invalid_field`, `invalid_user`, `supervisor_required`, `supervisor_is_student`, `exam_required`, `idempotency_key_required`, `invalid_json`, `invalid_message_id`, `invalid_outcome`, `invalid_id` | pedido inválido |
 | 401 | `unauthorized` | chave ausente ou errada |
 | 403 | `guild_not_allowed`, `wrong_channel`, `operators_not_configured`, `operator_not_allowed` | servidor, canal ou professor não autorizados (vem com a mensagem pronta "⛔ …") |
-| 404 | `exam_not_found`, `session_not_found`, `room_not_found`, `not_found` | prova, sessão ou rota inexistente |
-| 409 | `exam_not_dafp` | prova fora do grupo DAFP (ex.: `tcel`) |
-| 409 | `exam_inactive` / `exam_not_eligible` | prova desativada / sem questões ativas |
-| 409 | `room_exists` | já há sessão aberta desse aluno nessa prova (`roomId`, `canRegenerate`) |
-| 409 | `session_not_dafp`, `room_closed`, `regenerate_too_soon` | regenerar/consultar sessão TCEL, sessão encerrada, clique duplo |
-| 409 | `idempotency_conflict`, `request_in_progress` | mesma chave com outro conteúdo / pedido idêntico ainda processando |
+| 404 | `exam_not_found`, `session_not_found`, `room_not_found`, `not_found` | inexistente |
+| 409 | `exam_not_dafp`, `exam_inactive`, `exam_not_eligible`, `room_exists`, `session_not_dafp`, `room_closed`, `regenerate_too_soon`, `idempotency_conflict`, `request_in_progress` | sessão/prova |
+| 409 | `already_claimed`, `already_delivered`, `not_ready`, `ambiguous_needs_review`, `failed`, `config_missing`, `lease_mismatch` | fila (claim/ack) |
+| 410 | `cancelled`, `nothing_to_do` | aviso sem nada a fazer |
 | 413 | `payload_too_large` | corpo acima de 32 KB |
-| 429 | `rate_limited` | muitas tentativas sem chave ou pedidos demais |
-| 500 | `internal_error`, `render_failed` | erro interno / modelo de mensagem inválido (ajuste em Mensagens do Bot) |
-| 503 | `integration_disabled`, `integration_not_configured` | integração desligada no Render ou sem chave/servidor configurados |
+| 429 | `rate_limited` | muitas tentativas |
+| 500 | `internal_error`, `render_failed` | erro interno / modelo de mensagem inválido |
+| 503 | `integration_disabled`, `integration_not_configured` | integração desligada ou sem chave/servidor |
 
-**Se o site estiver dormindo** (plano gratuito do Render): o pedido pode demorar mais de 1 minuto ou falhar sem resposta. Mostre uma mensagem local ("Site iniciando…") e tente de novo.
+**Site dormindo** (plano gratuito do Render): o pedido pode demorar mais de 1 minuto ou falhar sem resposta. Mostre a mensagem local ("Site iniciando…") e tente de novo. Os avisos da fila não se perdem: são disparados quando o site acordar.
 
 ---
 
-## H. PASSO A PASSO NECESSÁRIO NO BOTGHOST
+## I. Compatibilidade (campos legados)
 
-Ordem técnica do que o BotGhost precisa fazer. Os blocos e nomes de variáveis são escolha sua; os valores e JSONs são exatos.
+| Campo | Situação |
+|---|---|
+| `applyRole`, `roleId`, `memberDiscordId` (no claim) | **LEGADOS, mantidos.** Hoje significam só o cargo de aprovado: `applyRole = "true"` e `roleId` = cargo de aprovado **só** no primeiro envio de um resultado APROVADO. `memberDiscordId` = aluno. **Não** cobrem a Role base nem o Mérito. **A configuração nova deve usar `roleAction1..3`.** |
+| `failedRoleId` | **LEGADO.** Não é mais usado; vem vazio em resultados novos (resultados antigos podem trazer o valor que tinham). |
+| `resultRoleId` | Agora só o cargo de aprovado (vazio se não aprovado). |
+| Rotas | Nenhuma rota foi removida ou renomeada; nenhuma rota nova foi criada nesta atualização. |
+
+---
+
+## J. PASSO A PASSO NECESSÁRIO NO BOTGHOST
+
+Ordem técnica do que o BotGhost precisa fazer. Os blocos e nomes de variáveis são escolha sua; os endpoints, valores e JSONs são exatos.
 
 ### 0. Pré-requisitos (uma vez)
-1. **No painel do site, aba "Provas & Questões":**
+1. **No painel, "Provas & Questões":**
    1. crie as 5 provas com **Grupo = DAFP**: Aspirante, Segundo Tenente, Primeiro Tenente, Capitão e Major;
    2. cadastre as questões de cada uma;
-   3. em **⚙ Integração / Resultado**, confira o **identificador (slug)** de cada prova. Sugeridos: `aspirante`, `segundo-tenente`, `primeiro-tenente`, `capitao` e `major`; eles são gerados a partir do nome;
-   4. ainda em Integração / Resultado, se quiser: **Aprovação automática = Sim**, **nota mínima**, **ID do cargo de aprovado**, **ID do cargo de reprovado** e, opcionalmente, o **ID do canal de resultado** da prova.
-2. **No painel, aba "Integração BotGhost" → "Provas DAFP":**
-   1. preencha **Professores que podem gerar provas DAFP** (IDs);
-   2. preencha o **Canal padrão de resultados DAFP**;
-   3. opcional: preencha o **Canal do /provas-dafp**;
-   4. clique em Salvar.
-3. **No Discord:** o cargo do bot precisa estar **acima** dos cargos de aprovado/reprovado, com a permissão **Gerenciar Cargos**.
-4. **A chave do site** já está em **Manage Secrets** (a mesma usada pelo TCEL).
+   3. em **⚙ Integração / Resultado**, confira o **identificador (slug)**;
+   4. configure **Aprovação automática**, **Nota mínima**, o **ID do cargo de APROVADO** da prova (ex.: Aprovado Prova Aspirante) e, se quiser, o canal próprio.
+2. **No painel, "Integração BotGhost → Provas DAFP":**
+   1. preencha os **Professores DAFP** e o **Canal padrão de resultados DAFP**;
+   2. em **Cargos automáticos DAFP**, preencha a **Role obrigatória durante o fluxo** (Bombeiros Militares da Fluxo) e o **Mérito em Proficiência**;
+   3. clique em Salvar.
+   - **Importante:** só preencha a Role obrigatória **depois** de o evento de webhook (passo 7) estar pronto para `DAFP_STARTED`. Assim que ela é salva, toda prova DAFP iniciada gera um aviso de remoção.
+3. **No Discord:** o cargo do bot precisa estar **acima** da Role base, dos cargos de aprovado e do Mérito, com a permissão **Gerenciar Cargos**.
+4. **A chave do site** já está em **Manage Secrets** (a mesma do TCEL).
 
-### 1–3. Receber aluno, avaliador e prova
+### 1–3. CRIAÇÃO: receber aluno, avaliador e prova
 - O comando `/provas-dafp` coleta:
-  - **ALUNO:** um usuário, cujo ID vai em `student`;
-  - **AVALIADOR:** um usuário, cujo ID vai em `supervisorDiscordId`;
-  - **PROVA:** o slug, que vai em `examSlug`.
+  - **ALUNO:** ID em `student`;
+  - **AVALIADOR:** ID em `supervisorDiscordId`;
+  - **PROVA:** slug em `examSlug`.
 - **Para a PROVA:**
-  - **opção A (menu dinâmico):** antes, chame `GET /dafp/exams` e ligue as 25 opções do Select Menu a `opt{N}Label`, `opt{N}Description`, `opt{N}Value` e `opt{N}Hide`. O valor escolhido é o slug;
-  - **opção B (menu fixo):** 5 opções digitadas, cujos valores são os slugs configurados no painel;
-  - **opção C (texto livre):** valide com `GET /dafp/exams/{slug}` antes de criar.
-- **Opcional:** pegue também o nome exibido e a foto (URL do CDN do Discord) do aluno, e o nome do avaliador.
+  - **menu dinâmico:** chame antes `GET /dafp/exams` e ligue as opções a `opt{N}Label` / `opt{N}Description` / `opt{N}Value` / `opt{N}Hide`;
+  - **ou menu fixo:** com os slugs;
+  - **ou texto:** validado com `GET /dafp/exams/{slug}`.
 
 ### 4. Criar a sessão
-Envie **`POST /dafp/rooms`** com o body da seção C:
+Envie **`POST /dafp/rooms`** (seção C):
 ```json
 {
   "guildId": "<ID do servidor>",
@@ -607,61 +737,67 @@ Envie **`POST /dafp/rooms`** com o body da seção C:
   "idempotencyKey": "<ID da interação>"
 }
 ```
+**Nenhum cargo é alterado aqui.**
 
-### 5. Armazenar IDs e links
-Guarde o que vier em `data`:
-- `sessionId`, necessário para consultar/regenerar depois;
-- `studentUrl` e `supervisorUrl`, que só aparecem nesta resposta;
-- `studentDiscordId`, `supervisorDiscordId`, `examName` e `resultChannelId`.
+### 5. Guardar IDs e links
+Da resposta `201` (`data`), guarde:
+- `sessionId`;
+- `studentUrl` e `supervisorUrl`, que só aparecem aqui;
+- `studentDiscordId`, `supervisorDiscordId` e `examName`.
 
 Se o `code` for:
 - `room_exists` → ofereça **regenerar** (`POST /dafp/rooms/{data.roomId}/regenerate-links`);
 - 4xx → mostre `data.displayText` em privado;
-- sem resposta → mostre a mensagem local de site iniciando.
+- sem resposta → mostre a mensagem local.
 
 ### 6. Enviar os links
-- Envie `studentUrl` **só ao aluno** (DM ou resposta privada).
-- Envie `supervisorUrl` **só ao avaliador**.
-- Opcional: responda ao professor em privado com a mensagem pronta (`data.message` / `data.native`, modelo "Sala criada").
-- **Nunca** publique links em canal público.
+- `studentUrl` **só ao aluno** e `supervisorUrl` **só ao avaliador**, em privado. Nunca em canal público.
+- Opcional: responder ao professor em privado com a mensagem pronta (`data.message` / `data.native`).
 
-### 7. Detectar a finalização
-- **Recomendado:** o evento de webhook que já existe ("TCEL avisos"). O site dispara o webhook sozinho quando a prova termina (seção F).
-- **Alternativa manual:** um botão que consulta `GET /dafp/sessions/{sessionId}` até `sessionStatus = "FINALIZADA"`.
+### 7. INÍCIO e FIM: o evento de webhook (o mesmo "TCEL avisos")
+O evento recebe `{tcel_notification_id}` e `{tcel_notification_kind}` e faz:
 
-### 8. Consultar o resultado
-- **No evento de webhook:** `POST /notifications/{tcel_notification_id}/claim`. Traz tudo, inclusive `applyRole`, `roleId` e `memberDiscordId`.
-- **Manualmente:** `GET /dafp/sessions/{sessionId}`, ou `GET /dafp/results?pageSize=1&student=<ID>` para o mais recente.
+1. **`POST /notifications/{tcel_notification_id}/claim`** (body `{}`).
+2. **Se não for `200`:** pare. Não faça nada, nem `ack`; o site cuida de tentar de novo.
+3. **Se `notificationActionType = "DAFP_STARTED"` (INÍCIO):**
+   1. se `roleAction1Enabled = "true"` → **remover** `roleAction1RoleId` do membro `roleAction1MemberDiscordId`;
+   2. **não** publicar nada (`publishMessage = "false"`);
+   3. `ack`: `{ "leaseToken": "<data.leaseToken>", "outcome": "delivered" }`;
+   4. se a remoção falhar → `ack` com `{ "leaseToken": "…", "outcome": "failed", "error": "…" }`.
+4. **Se `notificationActionType = "DAFP_FINISHED"` (FIM):**
+   1. se `roleAction1Enabled = "true"` → **adicionar** `roleAction1RoleId` (Role base) ao `roleAction1MemberDiscordId`;
+   2. se `roleAction2Enabled = "true"` → **adicionar** `roleAction2RoleId` (cargo de aprovado) ao `roleAction2MemberDiscordId`;
+   3. se `roleAction3Enabled = "true"` → **adicionar** `roleAction3RoleId` (Mérito em Proficiência) ao `roleAction3MemberDiscordId`;
+   4. se `publishMessage = "true"` → publicar a mensagem pronta:
+      - `action = "send"` → nova mensagem no `channelId`;
+      - `action = "edit"` → editar o `messageId` no `channelId`;
+   5. `ack`:
+      - com mensagem: `{ "leaseToken": "…", "outcome": "delivered", "messageId": "<ID da mensagem>", "channelId": "<canal>" }`;
+      - sem mensagem (`publishMessage = "false"`): `{ "leaseToken": "…", "outcome": "delivered" }`;
+      - se algo falhar: `{ "leaseToken": "…", "outcome": "failed", "error": "…" }`.
+5. **Qualquer outro `notificationActionType`** (`TCEL_RESULT`, `PROMOTION_ANNOUNCEMENT`, `TEMPLATE_TEST`, `PANEL_UPDATE`): continue **exatamente como já funciona hoje** (publicar/editar e `ack` com `messageId`). As posições de cargo vêm sempre `"false"` nesses avisos.
 
-### 9. Enviar a mensagem
-- Publique no canal **`channelId` do claim**. Pela consulta manual, use `resultChannelId`.
-- Pode usar a mensagem pronta (`message` / `native` / `discordBodyJson`, modelo "Resultado DAFP (canal)") ou montar a sua com os campos:
-  - `studentMention` e `supervisorMention`;
-  - `examName`;
-  - `scoreText`, que dá o "8/10";
-  - `resultStatus`.
+**Como montar as condições:**
+- Uma condição por posição, `roleActionNEnabled = "true"`, cada uma com o bloco de adicionar/remover cargo.
+- O tipo da ação está em `roleActionNType` (`ADD`/`REMOVE`), mas as posições são fixas:
+  - no início, só a posição 1 é usada, e sempre `REMOVE`;
+  - no fim, as três posições, sempre `ADD`.
+- Assim dá para usar blocos fixos:
+  - "remover cargo" no ramo `DAFP_STARTED`;
+  - "adicionar cargo" nos três slots do ramo `DAFP_FINISHED`.
 
-Exemplo equivalente ao pedido:
+### 8. Consultar o resultado (opcional)
+- `GET /dafp/sessions/{sessionId}` ou `GET /dafp/results?pageSize=1&student=<ID>`, para mostrar ao professor em privado.
+- Esses pedidos só leem; não substituem a fila.
+
+### 9. Resumo do fluxo
 ```
-RESULTADO DA PROVA
-Aluno: <studentMention>
-Avaliador: <supervisorMention>
-Prova: <examName>
-Nota: <scoreText>
-Resultado: <resultStatus>
+CRIAÇÃO   professor: /provas-dafp → aluno + avaliador + prova → POST /dafp/rooms
+          → links (aluno / avaliador) em privado.  Nenhum cargo muda.
+INÍCIO    aluno começa a prova → site cria 1 aviso dafp_started → webhook
+          → claim (DAFP_STARTED) → REMOVE Role base → ack (sem messageId)
+FIM       aluno termina / tempo esgota / admin encerra → site calcula nota,
+          aprovação e perfectScore (uma vez) → webhook
+          → claim (DAFP_FINISHED) → ADD Role base → [ADD aprovado] → [ADD Mérito]
+          → publica o resultado → ack (com messageId)
 ```
-- As menções `<@ID>` viram menções reais no Discord.
-- Com a mensagem pronta, o `allowed_mentions` controla quem é notificado. Os pings são editáveis em Mensagens do Bot.
-
-### 10. Aplicar o cargo
-- **No evento de webhook:**
-  - se `applyRole = "true"`, adicione o cargo **`roleId`** ao membro **`memberDiscordId`**;
-  - depois, confirme com `ack` (seção F, passo 5);
-  - `applyRole = "false"` (edição, TCEL, ou prova sem aprovação automática) → não aplique cargo.
-- **Pela consulta manual:** use `resultRoleId` (vazio = não aplicar) no aluno `studentDiscordId`.
-- O site **não** remove cargos anteriores. Se quiser remover o cargo oposto, use `approvedRoleId` / `failedRoleId`.
-
-### Observação sobre o evento de webhook existente
-- **Não é preciso outro evento.** O mesmo evento "TCEL avisos" já publica qualquer aviso no `channelId` que o claim devolve, então resultados DAFP saem no canal DAFP sem mudança.
-- **A única adição necessária é o passo 10:** uma condição `applyRole = "true"` → adicionar o cargo `roleId` ao membro `memberDiscordId`, antes do `ack`.
-- O comando `/provas-tcel` **não** precisa de alteração nenhuma.

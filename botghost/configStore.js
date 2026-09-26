@@ -19,6 +19,8 @@ function toPlain(doc) {
     dafp: {
       resultChannelId: (o.dafp && o.dafp.resultChannelId) || null,
       commandChannelId: (o.dafp && o.dafp.commandChannelId) || null,
+      baseRoleId: (o.dafp && o.dafp.baseRoleId) || null,
+      perfectScoreRoleId: (o.dafp && o.dafp.perfectScoreRoleId) || null,
     },
     defaultExamId: o.defaultExamId ? String(o.defaultExamId) : null,
     channels: { panel: ch.panel || null, results: ch.results || null, test: ch.test || null },
@@ -62,6 +64,11 @@ function channel(value, label, errors, required = false) {
   return text;
 }
 
+// ID de cargo: aceita também a menção <@&ID>.
+function role(value, label, errors) {
+  return channel(String(value == null ? '' : value).trim().replace(/^<@&(\d+)>$/, '$1'), label, errors);
+}
+
 function ids(value, label, errors) {
   const { ids: list, invalid } = parseIdList(value);
   if (invalid.length) errors.push(`${label}: IDs inválidos (${invalid.slice(0, 3).join(', ')}).`);
@@ -84,6 +91,8 @@ function validateConfig(body = {}) {
     dafp: {
       resultChannelId: channel((body.dafp || {}).resultChannelId, 'Canal padrão de resultados DAFP', errors),
       commandChannelId: channel((body.dafp || {}).commandChannelId, 'Canal do /provas-dafp', errors),
+      baseRoleId: role((body.dafp || {}).baseRoleId, 'ID da Role obrigatória DAFP', errors),
+      perfectScoreRoleId: role((body.dafp || {}).perfectScoreRoleId, 'ID da Role Mérito em Proficiência', errors),
     },
     defaultExamId: body.defaultExamId ? String(body.defaultExamId) : null,
     channels: {
@@ -100,6 +109,7 @@ function validateConfig(body = {}) {
     },
   };
   if (update.defaultExamId && !/^[a-f0-9]{24}$/i.test(update.defaultExamId)) errors.push('Prova padrão inválida.');
+  if (update.dafp.baseRoleId && update.dafp.baseRoleId === update.dafp.perfectScoreRoleId) errors.push('A Role obrigatória DAFP e a de Mérito em Proficiência precisam ser diferentes.');
   if (!update.promotion.addRoleIds.length) errors.push('Informe pelo menos um cargo a adicionar na promoção.');
   // Cada cargo vira um bloco fixo no BotGhost (addRole1..5 / removeRole1..5).
   if (update.promotion.addRoleIds.length > MAX_ROLE_SLOTS) errors.push(`No máximo ${MAX_ROLE_SLOTS} cargos a adicionar.`);

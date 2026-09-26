@@ -195,8 +195,10 @@ function dafpSessionData(room, exam, config, studentAvatarUrl) {
     autoApproval: boolText(Boolean(exam.autoApproval)),
     passingScore: exam.autoApproval && exam.passingScore != null ? String(exam.passingScore) : '',
     approvedRoleId: exam.autoApproval ? exam.approvedRoleId || '' : '',
-    failedRoleId: exam.autoApproval ? exam.failedRoleId || '' : '',
+    failedRoleId: '', // LEGADO: reprovado não recebe cargo
     resultChannelId: exam.resultChannelId || config.dafp.resultChannelId || '',
+    dafpBaseRoleId: config.dafp.baseRoleId || '',
+    dafpPerfectScoreRoleId: config.dafp.perfectScoreRoleId || '',
   };
 }
 

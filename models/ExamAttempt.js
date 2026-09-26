@@ -99,6 +99,10 @@ const examAttemptSchema = new mongoose.Schema({
   // Grupo da prova no início da tentativa (TCEL/DAFP). Antigas: null = TCEL.
   // Separa as consultas do bot: o TCEL nunca lista resultados DAFP.
   examGroup: { type: String, default: null },
+  // DAFP: Role base cuja REMOÇÃO foi pedida ao BotGhost no início desta
+  // tentativa (config naquele momento). Presente = a tentativa precisa
+  // devolver essa Role em qualquer encerramento definitivo.
+  dafpBaseRoleRemovedId: { type: String, default: null },
   // Resultado de aprovação decidido UMA vez, na finalização, com a
   // configuração da prova naquele momento (mudar a prova depois não
   // reescreve resultados antigos). resultStatus: APROVADO | REPROVADO |
@@ -116,6 +120,15 @@ const examAttemptSchema = new mongoose.Schema({
     resultChannelId: { type: String, default: null },
     examSlug: { type: String, default: null },
     examName: { type: String, default: null },
+    // Nota máxima atingida (score == maxScore, 2 casas) — só em prova
+    // efetivamente corrigida (encerramento pelo admin no DAFP não conta).
+    perfectScore: { type: Boolean, default: null },
+    // FINALIZADA_PELO_ALUNO | TEMPO_ESGOTADO | ENCERRADA_PELO_ADMIN
+    finishReason: { type: String, default: null },
+    // Cargos globais DAFP valendo nesta finalização (Role base devolvida e
+    // Mérito em Proficiência).
+    baseRoleId: { type: String, default: null },
+    perfectScoreRoleId: { type: String, default: null },
   },
   // Pontuação máxima congelada no momento da prova (questões sorteadas ×
   // pontos por questão). Tentativas antigas sem este campo usam o mesmo

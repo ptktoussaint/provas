@@ -4,7 +4,9 @@ const ExamAttempt = require('../models/ExamAttempt');
 const Exam = require('../models/Exam');
 const IntegrationNotification = require('../models/IntegrationNotification');
 const { listForDiscord, writtenScore, maxScoreOf, isFinished } = require('../lib/results');
-const { maxPossibleScore, findExamByRef, RESULT } = require('../lib/examGroups');
+const {
+  maxPossibleScore, findExamByRef, RESULT, isPerfectScore, startRoleActions, finishRoleActions, roleActionFields,
+} = require('../lib/examGroups');
 const { ApiError, boolText } = require('./http');
 const { userText, plainText, fmtNumber, fmtDate, fmtDateTime, mention, truncate } = require('./format');
 const rooms = require('./roomsService');
@@ -31,8 +33,18 @@ function examView(exam, config) {
     autoApproval: boolText(Boolean(exam.autoApproval)),
     passingScore: exam.autoApproval && exam.passingScore != null ? String(exam.passingScore) : '',
     approvedRoleId: exam.autoApproval ? exam.approvedRoleId || '' : '',
-    failedRoleId: exam.autoApproval ? exam.failedRoleId || '' : '',
+    // LEGADO: reprovado não recebe mais cargo (campo mantido, sempre vazio).
+    failedRoleId: '',
     resultChannelId: exam.resultChannelId || config.dafp.resultChannelId || '',
+    ...globalRoleFields(config),
+  };
+}
+
+// Cargos globais DAFP da aba Integração (Role base e Mérito).
+function globalRoleFields(config) {
+  return {
+    dafpBaseRoleId: (config.dafp && config.dafp.baseRoleId) || '',
+    dafpPerfectScoreRoleId: (config.dafp && config.dafp.perfectScoreRoleId) || '',
   };
 }
 
@@ -96,7 +108,7 @@ function resultFields(attempt, { room = null, exam = null, config, published = f
     attemptId: attempt ? String(attempt._id) : '',
     sessionStatus: sessionStatusOf(room, attempt),
     examId: exam ? String(exam._id) : (attempt ? String(attempt.examId && attempt.examId._id ? attempt.examId._id : attempt.examId) : ''),
-    examSlug: (exam && exam.slug) || o.examSlug || '',
+    examSlug: (exam && exam.slug) || o.examSlug || (attempt && attempt.examId && attempt.examId.slug) || '',
     examName: plainText(examName, 100),
     examGroup: 'DAFP',
     studentDiscordId: studentId,
@@ -115,12 +127,31 @@ function resultFields(attempt, { room = null, exam = null, config, published = f
     passed: decided && o.autoApproval ? boolText(o.resultStatus === RESULT.APPROVED) : '',
     resultRoleId: decided ? o.resultRoleId || '' : '',
     approvedRoleId: decided ? o.approvedRoleId || '' : '',
+    // LEGADO: só resultados antigos (anteriores ao fim do cargo de reprovado).
     failedRoleId: decided ? o.failedRoleId || '' : '',
     resultChannelId: o.resultChannelId || (exam && exam.resultChannelId) || config.dafp.resultChannelId || '',
     finishedAt: finished && attempt.finishedAt ? new Date(attempt.finishedAt).toISOString() : '',
     finishedAtText: finished ? fmtDateTime(attempt.finishedAt) : '',
     resultPublished: boolText(Boolean(published)),
+    // Nota máxima (decidido no servidor na finalização). Resultados de antes
+    // deste campo: calculado da nota gravada.
+    perfectScore: decided ? boolText(o.perfectScore != null ? Boolean(o.perfectScore) : isPerfectScore(score, max)) : '',
+    finishReason: decided ? o.finishReason || '' : '',
+    ...globalRoleFields(config),
+    ...phaseRoleActions(attempt, finished),
   };
+}
+
+// Ações de cargo da fase atual da sessão (as mesmas que a fila entrega ao
+// BotGhost): START = tirar a Role base; FINISH = devolver + aprovado + Mérito.
+function phaseRoleActions(attempt, finished) {
+  if (attempt && !attempt.deletedAt && attempt.status === 'in_progress' && attempt.dafpBaseRoleRemovedId) {
+    return { roleActionsPhase: 'START', ...roleActionFields(startRoleActions(attempt)) };
+  }
+  if (attempt && (finished || (attempt.deletedAt && attempt.dafpBaseRoleRemovedId))) {
+    return { roleActionsPhase: 'FINISH', ...roleActionFields(finishRoleActions(attempt)) };
+  }
+  return { roleActionsPhase: '', ...roleActionFields([]) };
 }
 
 async function publishedMap(attemptIds) {
@@ -163,7 +194,7 @@ function line(f, index) {
 
 const SINGLE_KEYS = ['sessionId', 'attemptId', 'sessionStatus', 'examId', 'examSlug', 'examName', 'studentDiscordId', 'studentMention', 'studentDisplayName', 'studentAvatarUrl',
   'supervisorDiscordId', 'supervisorMention', 'supervisorDisplayName', 'score', 'maxScore', 'scoreText', 'autoApproval', 'passingScore', 'resultStatus', 'passed',
-  'resultRoleId', 'approvedRoleId', 'failedRoleId', 'resultChannelId', 'finishedAt', 'finishedAtText', 'resultPublished'];
+  'resultRoleId', 'approvedRoleId', 'failedRoleId', 'resultChannelId', 'finishedAt', 'finishedAtText', 'resultPublished', 'perfectScore', 'finishReason'];
 
 // Lista paginada dos resultados DAFP (finalizados, não excluídos nem
 // arquivados). Com exatamente uma prova na página, os campos dela também

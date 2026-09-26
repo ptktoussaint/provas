@@ -630,12 +630,11 @@
         <div class="discord-form-grid ${auto ? '' : 'hidden'}" data-auto-fields>
           <div class="field-group"><label>Nota mínima para aprovação (máx. ${examMaxScore(exam)})</label>
             <input name="passingScore" type="number" min="0" max="${examMaxScore(exam)}" step="0.01" value="${exam.passingScore != null ? escapeHtml(String(exam.passingScore)) : ''}" /></div>
-          <div class="field-group"><label>ID do cargo de APROVADO</label>
+          <div class="field-group"><label>ID do cargo de APROVADO (desta prova)</label>
             <input name="approvedRoleId" value="${escapeHtml(exam.approvedRoleId || '')}" placeholder="ID do cargo" /></div>
-          <div class="field-group"><label>ID do cargo de REPROVADO</label>
-            <input name="failedRoleId" value="${escapeHtml(exam.failedRoleId || '')}" placeholder="ID do cargo" /></div>
         </div>
-        <p class="hint" style="margin-top:6px">Nota = acertos × pontos por questão (máximo ${examMaxScore(exam)}). Aprovado quando a nota for maior ou igual à nota mínima. O site só informa o cargo ao BotGhost; quem aplica o cargo é o BotGhost.</p>
+        ${exam.failedRoleId ? `<p class="hint" style="margin-top:0">Cargo de reprovado antigo: <code>${escapeHtml(exam.failedRoleId)}</code> — <strong>não é mais usado</strong> (reprovado não recebe cargo).</p>` : ''}
+        <p class="hint" style="margin-top:6px">Nota = acertos × pontos por questão (máximo ${examMaxScore(exam)}). Aprovado quando a nota for maior ou igual à nota mínima. Reprovado não recebe cargo. A Role base e o Mérito em Proficiência são globais (aba Integração BotGhost → Provas DAFP). O site só informa os cargos ao BotGhost; quem aplica é o BotGhost.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <button type="submit" class="small-btn">Salvar</button>
           <button type="button" class="small-btn secondary-btn" data-settings-cancel="${id}">Fechar</button>
@@ -714,8 +713,7 @@
         if (body.autoApproval) {
           body.passingScore = val('passingScore').value.trim();
           body.approvedRoleId = val('approvedRoleId').value.trim();
-          body.failedRoleId = val('failedRoleId').value.trim();
-          if (!body.passingScore || !body.approvedRoleId || !body.failedRoleId) { msg.textContent = 'Com aprovação automática, preencha a nota mínima e os dois cargos.'; return; }
+          if (!body.passingScore || !body.approvedRoleId) { msg.textContent = 'Com aprovação automática, preencha a nota mínima e o cargo de aprovado.'; return; }
         }
         msg.textContent = 'Salvando...';
         const data = await api(`/exams/${form.dataset.settingsForm}`, { method: 'PUT', body: JSON.stringify(body) });

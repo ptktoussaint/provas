@@ -12,6 +12,7 @@ const { renderTemplate } = require('./templates/render');
 const { sampleContext } = require('./templates/catalog');
 const { userText, fmtNumber, fmtDateTime, mention, roleMention } = require('./format');
 const { boolText } = require('./http');
+const { startRoleActions, finishRoleActions, roleActionFields, isPerfectScore } = require('../lib/examGroups');
 
 // Avisos que o bot do BotGhost publica em canais (resultado, anúncio,
 // teste de modelo, atualização do painel). O site NUNCA fala direto com o
@@ -55,10 +56,15 @@ async function syncResultNotification(attempt) {
     const revision = attempt.revision || 0;
     const deleted = Boolean(attempt.deletedAt);
     const existing = await IntegrationNotification.findOne({ key });
+    // DAFP com Role base retirada no início: TODO encerramento definitivo
+    // (finalizado, encerrado pelo admin ou excluído) precisa devolvê-la,
+    // mesmo sem mensagem para publicar.
+    const mustReturnRole = attempt.examGroup === 'DAFP' && Boolean(attempt.dafpBaseRoleRemovedId);
+    if (mustReturnRole && (deleted || isFinished(attempt))) await cancelPendingStart(attempt._id);
 
     if (!existing) {
-      if (deleted || !isFinished(attempt)) return null;
-      if (!(attempt.discordSync && attempt.discordSync.wantsMessage)) return null;
+      if (deleted ? !mustReturnRole : !isFinished(attempt)) return null;
+      if (!deleted && !(attempt.discordSync && attempt.discordSync.wantsMessage)) return null;
       try {
         return await IntegrationNotification.create({ kind: 'result', key, attemptId: attempt._id, targetRevision: revision, history: [{ event: 'created' }] });
       } catch (err) {
@@ -68,9 +74,19 @@ async function syncResultNotification(attempt) {
     }
 
     const neverSent = !existing.message.messageId;
+    const rolesPending = mustReturnRole && !existing.message.deliveredAt;
     const set = {};
     let extra = {};
-    if (deleted && neverSent && ['pending', 'dispatched', 'failed'].includes(existing.status)) {
+    if (deleted && neverSent && existing.status === 'delivered') {
+      // Só cargos já devolvidos (nada publicado): nada mais a fazer.
+    } else if (deleted && neverSent && rolesPending && ['pending', 'dispatched', 'failed'].includes(existing.status)) {
+      // Excluído antes de publicar, mas a Role base ainda precisa voltar:
+      // continua na fila (a reserva devolve só o cargo, sem mensagem).
+      if (existing.status === 'failed') {
+        Object.assign(set, { status: 'pending', nextDispatchAt: new Date(), dispatchAttempts: 0 });
+        extra = historyPush('requeued', 'excluído: devolver a Role base');
+      }
+    } else if (deleted && neverSent && ['pending', 'dispatched', 'failed'].includes(existing.status)) {
       // Excluído antes de ser publicado: nada deve aparecer no canal.
       set.status = 'cancelled';
       extra = historyPush('cancelled', 'resultado excluído antes da publicação');
@@ -89,6 +105,40 @@ async function syncResultNotification(attempt) {
     console.error('[botghost] falha ao agendar aviso de resultado (a nota continua salva):', safeError(err));
     return null;
   }
+}
+
+// Início real de uma prova DAFP: um aviso SEM mensagem, só para o BotGhost
+// retirar a Role base do aluno. Chave única por tentativa (nunca dois).
+// Nunca lança: a prova já começou e não depende do Discord.
+function startKey(attemptId) {
+  return `dafp_started:${attemptId}`;
+}
+
+async function createDafpStartNotification(attempt) {
+  try {
+    if (!attempt || !attempt.dafpBaseRoleRemovedId || !attempt.discordUserId) return null;
+    return await IntegrationNotification.create({
+      kind: 'dafp_started',
+      key: startKey(attempt._id),
+      attemptId: attempt._id,
+      payload: { baseRoleId: attempt.dafpBaseRoleRemovedId, memberDiscordId: attempt.discordUserId },
+      history: [{ event: 'created' }],
+    });
+  } catch (err) {
+    if (isDup(err)) return IntegrationNotification.findOne({ key: startKey(attempt._id) });
+    console.error('[botghost] falha ao agendar a remoção da Role base (a prova continua):', safeError(err));
+    return null;
+  }
+}
+
+// A prova terminou antes de o BotGhost tirar a Role base: a remoção não é
+// mais necessária (e, se viesse depois da devolução, deixaria o aluno sem
+// a Role). Uma reserva em andamento não é cancelada — o fim espera por ela.
+async function cancelPendingStart(attemptId) {
+  await IntegrationNotification.updateOne(
+    { key: startKey(attemptId), status: { $in: ['pending', 'dispatched', 'failed'] } },
+    { $set: { status: 'cancelled', 'lease.token': null }, ...historyPush('cancelled', 'prova terminou antes da remoção da Role base') },
+  );
 }
 
 async function createAnnouncement({ draftId, batch, index, userIds, promotionIds, nicknames, channelId, roleId }) {
@@ -179,6 +229,7 @@ function dafpContext(attempt) {
       'resultado.status': DAFP_STATUS_TEXT[o.resultStatus] || 'Nota registrada',
       'resultado.notaMinima': o.autoApproval && o.passingScore != null ? fmtNumber(o.passingScore) : '',
       'resultado.cargoMencao': o.resultRoleId ? roleMention(o.resultRoleId) : '',
+      'resultado.gabaritou': (o.perfectScore != null ? o.perfectScore : isPerfectScore(writtenScore(attempt), maxScoreOf(attempt))) ? 'Sim' : 'Não',
     },
     pingIds: { aluno: [attempt.discordUserId], avaliador: supId ? [supId] : [] },
   };
@@ -210,31 +261,30 @@ class ClaimProblem extends Error {
   }
 }
 
+const EMPTY_SLOTS = [null, null, null];
+
 async function buildClaimContent(n, config) {
+  if (n.kind === 'dafp_started') {
+    const attempt = await ExamAttempt.findById(n.attemptId).select('-snapshot -auditTrail -focusEvents -streamEvents').populate('examId', 'name slug');
+    if (!attempt) throw new ClaimProblem(410, 'nothing_to_do', 'A tentativa não existe mais.', 'cancelled');
+    if (attempt.deletedAt || attempt.status !== 'in_progress') {
+      throw new ClaimProblem(410, 'nothing_to_do', 'A prova já terminou: a Role base não precisa mais sair.', 'cancelled');
+    }
+    const fields = require('./dafpService').resultFields(attempt, { config });
+    return { roleOnly: true, actionType: 'DAFP_STARTED', action: 'none', channelId: '', slots: startRoleActions(attempt), extra: fields, revision: null };
+  }
   if (n.kind === 'result') {
-    const attempt = await ExamAttempt.findById(n.attemptId).select('-snapshot -auditTrail -focusEvents -streamEvents').populate('examId', 'name');
+    const attempt = await ExamAttempt.findById(n.attemptId).select('-snapshot -auditTrail -focusEvents -streamEvents').populate('examId', 'name slug');
     if (!attempt) throw new ClaimProblem(410, 'nothing_to_do', 'A tentativa não existe mais.', 'cancelled');
     const hasMessage = Boolean(n.message.messageId);
     const revision = attempt.revision || 0;
+    if (attempt.examGroup === 'DAFP') return dafpResultContent(n, attempt, config, { hasMessage, revision });
     if (attempt.deletedAt) {
       if (!hasMessage) throw new ClaimProblem(410, 'nothing_to_do', 'Resultado excluído antes de ser publicado — nada a enviar.', 'cancelled');
       const { ctx, pingIds } = resultContext(attempt);
       return { templateKey: 'result_removed', action: 'edit', channelId: n.message.channelId, messageId: n.message.messageId, ctx, pingIds, revision };
     }
     if (!isFinished(attempt)) throw new ClaimProblem(409, 'not_ready', 'A prova ainda não foi finalizada.');
-    if (attempt.examGroup === 'DAFP') {
-      // DAFP: canal próprio (o da prova ou o padrão DAFP) e cargo do
-      // resultado para o BotGhost aplicar — só no PRIMEIRO envio (edições
-      // não reaplicam cargo).
-      const { ctx, pingIds } = dafpContext(attempt);
-      const o = attempt.outcome || {};
-      const dafpFields = require('./dafpService').resultFields(attempt, { config, published: hasMessage });
-      const channelId = hasMessage ? n.message.channelId : (o.resultChannelId || config.dafp.resultChannelId);
-      if (!channelId) throw new ClaimProblem(409, 'config_missing', 'Canal padrão de resultados DAFP não configurado na aba Integração BotGhost (nem canal próprio na prova).');
-      const action = hasMessage ? 'edit' : 'send';
-      const extra = { ...dafpFields, applyRole: boolText(action === 'send' && Boolean(o.resultRoleId)), roleId: action === 'send' ? o.resultRoleId || '' : '', memberDiscordId: attempt.discordUserId };
-      return { templateKey: 'dafp_result', action, channelId, messageId: hasMessage ? n.message.messageId : undefined, ctx, pingIds, revision, extra };
-    }
     const { ctx, pingIds } = resultContext(attempt);
     // Com prova oral lançada, a mensagem mostra a soma (antes ou depois de
     // já ter sido publicada).
@@ -260,6 +310,47 @@ async function buildClaimContent(n, config) {
   throw new ClaimProblem(400, 'unknown_kind', 'Tipo de notificação desconhecido.', 'failed');
 }
 
+// Fim de uma prova DAFP (DAFP_FINISHED): mensagem de resultado + cargos.
+// Cargos só até a PRIMEIRA entrega confirmada (edições depois não mexem em
+// cargo). Ordem garantida: se a remoção do início ainda está com o BotGhost,
+// espera; se nem começou, é cancelada (a devolução já cobre).
+async function dafpResultContent(n, attempt, config, { hasMessage, revision }) {
+  const start = await IntegrationNotification.findOne({ key: startKey(attempt._id) }).select('status').lean();
+  if (start && start.status === 'claimed') {
+    throw new ClaimProblem(409, 'not_ready', 'Aguardando o BotGhost concluir a remoção da Role base do início da prova.');
+  }
+  if (start && ['pending', 'dispatched', 'failed'].includes(start.status)) await cancelPendingStart(attempt._id);
+
+  const firstDelivery = !n.message.deliveredAt;
+  const fields = require('./dafpService').resultFields(attempt, { config, published: hasMessage });
+  const o = attempt.outcome || {};
+  const legacy = (slots) => {
+    const approved = slots[1];
+    return { applyRole: boolText(Boolean(approved)), roleId: approved ? approved.roleId : '', memberDiscordId: attempt.discordUserId || '' };
+  };
+  if (attempt.deletedAt) {
+    if (hasMessage) {
+      const { ctx, pingIds } = resultContext(attempt);
+      return { templateKey: 'result_removed', action: 'edit', channelId: n.message.channelId, messageId: n.message.messageId, ctx, pingIds, revision, actionType: 'DAFP_FINISHED', slots: EMPTY_SLOTS, extra: { ...fields, ...legacy(EMPTY_SLOTS) } };
+    }
+    if (firstDelivery && attempt.dafpBaseRoleRemovedId) {
+      // Excluído antes de publicar: nada no canal, só a Role base volta.
+      const slots = finishRoleActions(attempt);
+      return { roleOnly: true, actionType: 'DAFP_FINISHED', action: 'none', channelId: '', slots, revision, extra: { ...fields, ...legacy(slots) } };
+    }
+    throw new ClaimProblem(410, 'nothing_to_do', 'Resultado excluído antes de ser publicado — nada a enviar.', 'cancelled');
+  }
+  if (!isFinished(attempt)) throw new ClaimProblem(409, 'not_ready', 'A prova ainda não foi finalizada.');
+  const { ctx, pingIds } = dafpContext(attempt);
+  const channelId = hasMessage ? n.message.channelId : (o.resultChannelId || config.dafp.resultChannelId);
+  if (!channelId) throw new ClaimProblem(409, 'config_missing', 'Canal padrão de resultados DAFP não configurado na aba Integração BotGhost (nem canal próprio na prova).');
+  const action = hasMessage ? 'edit' : 'send';
+  const slots = firstDelivery ? finishRoleActions(attempt) : EMPTY_SLOTS;
+  return { templateKey: 'dafp_result', action, channelId, messageId: hasMessage ? n.message.messageId : undefined, ctx, pingIds, revision, actionType: 'DAFP_FINISHED', slots, extra: { ...fields, ...legacy(slots) } };
+}
+
+const ACTION_TYPES = { promotion_announcement: 'PROMOTION_ANNOUNCEMENT', template_test: 'TEMPLATE_TEST', panel_update: 'PANEL_UPDATE', result: 'TCEL_RESULT' };
+
 function claimResponse(n, built, rendered, leaseToken, leaseUntil) {
   return {
     notificationId: String(n._id),
@@ -271,18 +362,29 @@ function claimResponse(n, built, rendered, leaseToken, leaseUntil) {
     messageId: built.messageId || '',
     keepComponents: built.keepComponents ? 'true' : 'false',
     renderedRevision: built.revision == null ? '' : String(built.revision),
-    templateKey: built.templateKey,
+    templateKey: built.templateKey || '',
     message: rendered.message,
     native: rendered.native,
     discordBodyJson: rendered.discordBodyJson,
     displayText: rendered.message.content || (rendered.message.embeds[0] && (rendered.message.embeds[0].title || rendered.message.embeds[0].description)) || '',
-    // Fluxo DAFP: aplicar cargo? (sempre presente; "false" fora do DAFP).
+    // O que fazer (sempre presente): DAFP_STARTED | DAFP_FINISHED |
+    // TCEL_RESULT | PROMOTION_ANNOUNCEMENT | TEMPLATE_TEST | PANEL_UPDATE.
+    notificationActionType: built.actionType || ACTION_TYPES[n.kind] || n.kind,
+    // "false" = não publicar nada (só executar os cargos e confirmar).
+    publishMessage: boolText(!built.roleOnly),
+    // Campos LEGADOS (mantidos por compatibilidade): cargo de aprovado.
     applyRole: 'false',
     roleId: '',
     memberDiscordId: '',
     ...(built.extra || {}),
+    // Ações de cargo (DAFP): lista + campos fixos por posição (1..3).
+    ...roleActionFields(built.slots || EMPTY_SLOTS),
+    roleActionsPhase: (built.slots || []).some(Boolean) ? (built.actionType === 'DAFP_STARTED' ? 'START' : 'FINISH') : '',
   };
 }
+
+// Aviso só de cargos: nada para publicar.
+const ROLE_ONLY_RENDER = { ok: true, message: { content: '', embeds: [], allowed_mentions: { parse: [], users: [], roles: [] } }, native: {}, discordBodyJson: '' };
 
 // Reserva atômica: só UM executor recebe a notificação por vez (webhook e
 // fluxo Promover podem tentar juntos — o segundo recebe "already_claimed").
@@ -313,9 +415,12 @@ async function claim(notificationId) {
   const config = await configStore.getConfig({ fresh: true });
   try {
     const built = await buildClaimContent(n, config);
-    const spec = await templates.getPublished(built.templateKey);
-    const rendered = renderTemplate(built.templateKey, spec, built.ctx, { mode: built.test ? 'test' : built.action, pingIds: built.pingIds });
-    if (!rendered.ok) throw new ClaimProblem(422, 'render_failed', `O modelo "${built.templateKey}" não coube nos limites do Discord: ${rendered.errors.map((e) => e.message).join(' ')}`, 'failed');
+    let rendered = ROLE_ONLY_RENDER;
+    if (!built.roleOnly) {
+      const spec = await templates.getPublished(built.templateKey);
+      rendered = renderTemplate(built.templateKey, spec, built.ctx, { mode: built.test ? 'test' : built.action, pingIds: built.pingIds });
+      if (!rendered.ok) throw new ClaimProblem(422, 'render_failed', `O modelo "${built.templateKey}" não coube nos limites do Discord: ${rendered.errors.map((e) => e.message).join(' ')}`, 'failed');
+    }
     await IntegrationNotification.updateOne({ _id: n._id }, {
       $set: { 'lease.action': built.action, 'lease.renderedRevision': built.revision, 'lease.channelId': built.channelId },
     });
@@ -339,9 +444,12 @@ async function ack(notificationId, { leaseToken, outcome, messageId, channelId, 
   const token = String(leaseToken || '');
 
   if (outcome === 'delivered') {
-    const msgId = String(messageId || n.message.messageId || '').trim();
-    if (!isSnowflake(msgId)) return { status: 400, code: 'invalid_message_id', message: 'Informe o ID real da mensagem (messageId).' };
-    if (n.status === 'delivered' && n.message.messageId === msgId) {
+    // Aviso só de cargos (início DAFP, resultado DAFP excluído antes de
+    // publicar): não há mensagem, então não há messageId.
+    const roleOnly = n.lease.action === 'none';
+    const msgId = roleOnly ? (n.message.messageId || '') : String(messageId || n.message.messageId || '').trim();
+    if (!roleOnly && !isSnowflake(msgId)) return { status: 400, code: 'invalid_message_id', message: 'Informe o ID real da mensagem (messageId).' };
+    if (n.status === 'delivered' && (roleOnly ? n.lease.token === token : n.message.messageId === msgId)) {
       return { status: 200, code: 'already_acked', message: 'Confirmação já registrada.', data: { notificationId: String(n._id), messageId: msgId } };
     }
     if (!['claimed', 'ambiguous'].includes(n.status) || !token || n.lease.token !== token) {
@@ -351,14 +459,14 @@ async function ack(notificationId, { leaseToken, outcome, messageId, channelId, 
     const update = {
       $set: {
         status: 'delivered',
-        'message.channelId': isSnowflake(ch) ? ch : n.lease.channelId,
-        'message.messageId': msgId,
+        'message.channelId': roleOnly ? n.message.channelId : (isSnowflake(ch) ? ch : n.lease.channelId),
+        'message.messageId': msgId || null,
         'message.deliveredAt': new Date(),
         deliveredRevision: n.lease.renderedRevision,
         'lease.until': null,
         lastError: null,
       },
-      ...historyPush(n.status === 'ambiguous' ? 'late_ack_resolved' : 'delivered', msgId),
+      ...historyPush(n.status === 'ambiguous' ? 'late_ack_resolved' : 'delivered', msgId || 'cargos executados'),
     };
     const done = await IntegrationNotification.findOneAndUpdate({ _id: n._id, 'lease.token': token, status: { $in: ['claimed', 'ambiguous'] } }, update, { new: true });
     if (!done) return { status: 409, code: 'lease_mismatch', message: 'Esta reserva não é mais válida.' };
@@ -412,11 +520,13 @@ async function afterDelivered(n) {
 // admin decide (conferir o canal e informar o ID, ou reenviar).
 async function expireLeases(now = new Date()) {
   await IntegrationNotification.updateMany(
-    { status: 'claimed', 'lease.until': { $lt: now }, 'lease.action': 'edit' },
-    { $set: { status: 'pending', nextDispatchAt: now }, ...historyPush('lease_expired_retry_edit') },
+    { status: 'claimed', 'lease.until': { $lt: now }, 'lease.action': { $in: ['edit', 'none'] } },
+    { $set: { status: 'pending', nextDispatchAt: now }, ...historyPush('lease_expired_retry') },
   );
+  // Só cargos (action none): refazer é seguro — adicionar/remover um cargo
+  // de novo deixa o mesmo estado final.
   await IntegrationNotification.updateMany(
-    { status: 'claimed', 'lease.until': { $lt: now }, 'lease.action': { $ne: 'edit' } },
+    { status: 'claimed', 'lease.until': { $lt: now }, 'lease.action': { $nin: ['edit', 'none'] } },
     { $set: { status: 'ambiguous', lastError: 'A reserva venceu sem confirmação: a mensagem pode ter sido publicada. Confira o canal.', lastErrorAt: now }, ...historyPush('lease_expired_ambiguous') },
   );
   // Webhook disparado mas nenhum evento veio reservar: volta para a fila.
@@ -465,7 +575,7 @@ async function adminResolveAmbiguous(id, { mode, messageId, channelId }, actor) 
 
 module.exports = {
   announcementContext,
-  syncResultNotification, createAnnouncement, createTemplateTest, createPanelUpdate,
+  syncResultNotification, createAnnouncement, createTemplateTest, createPanelUpdate, createDafpStartNotification, startKey,
   claim, ack, expireLeases, adminRetry, adminResolveAmbiguous, backoffMs, safeError,
   LEASE_MS, DISPATCH_CLAIM_TIMEOUT_MS,
 };

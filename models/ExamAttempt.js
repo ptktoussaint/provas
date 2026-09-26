@@ -103,6 +103,23 @@ const examAttemptSchema = new mongoose.Schema({
   // tentativa (config naquele momento). Presente = a tentativa precisa
   // devolver essa Role em qualquer encerramento definitivo.
   dafpBaseRoleRemovedId: { type: String, default: null },
+  // Estado da Role base desta tentativa (recuperação de falhas). Regra: fora
+  // de uma prova DAFP efetivamente em andamento o aluno TEM a Role base.
+  // suspendedAt: entrou em andamento com a Role base configurada;
+  // removeRequestedAt/removeConfirmedAt: aviso de remoção criado / BotGhost
+  // confirmou; releasedAt: saiu de "em andamento" (qualquer motivo);
+  // restoreRequestedAt/restoreConfirmedAt: devolução pedida / BotGhost
+  // confirmou (restoreConfirmedVia = tipo do aviso que confirmou).
+  // Devolução sem confirmação = a reconciliação garante um aviso na fila.
+  dafpBaseRole: {
+    suspendedAt: { type: Date, default: null },
+    removeRequestedAt: { type: Date, default: null },
+    removeConfirmedAt: { type: Date, default: null },
+    releasedAt: { type: Date, default: null },
+    restoreRequestedAt: { type: Date, default: null },
+    restoreConfirmedAt: { type: Date, default: null },
+    restoreConfirmedVia: { type: String, default: null },
+  },
   // Resultado de aprovação decidido UMA vez, na finalização, com a
   // configuração da prova naquele momento (mudar a prova depois não
   // reescreve resultados antigos). resultStatus: APROVADO | REPROVADO |

@@ -316,7 +316,9 @@ test('finalização duplicada (concorrente e repetida): um só resultado, um só
   const doc = await M.ExamAttempt.findById(attempt._id).lean();
   assert.equal(doc.revision, 1, 'finalizou uma vez só');
   assert.equal(doc.score, 9);
-  assert.equal(doc.outcome.resultStatus, 'APROVADO');
+  // Quem venceu a corrida decide (encerramento pelo admin no DAFP é
+  // cancelamento, sem aprovação); o importante é ter decidido UMA vez.
+  assert.equal(doc.outcome.resultStatus, doc.outcome.finishReason === 'ENCERRADA_PELO_ADMIN' ? 'NAO_APLICAVEL' : 'APROVADO');
   assert.equal(String(again.finishedAt), String(doc.finishedAt));
   const events = await M.ExamEvent.countDocuments({ attemptId: attempt._id, type: /^attempt_finished/ });
   assert.equal(events, 1);

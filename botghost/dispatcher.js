@@ -107,8 +107,12 @@ class NotificationDispatcher {
     return created;
   }
 
-  // DAFP: prova iniciada sem o aviso de remoção da Role base, ou resultado
-  // excluído que ainda não devolveu a Role base (processo caiu no meio).
+  // DAFP (estado desejado da Role base):
+  // 1. prova em andamento sem o aviso de remoção (o site caiu no meio);
+  // 2. prova que saiu de "em andamento" (finalizada, tempo esgotado,
+  //    encerrada pelo admin, excluída) sem devolução CONFIRMADA: garante um
+  //    aviso de devolução na fila — cria o que faltou ou recoloca o que
+  //    falhou/foi cancelado. Repetir o ADD é seguro.
   async reconcileDafpRoles() {
     let created = 0;
     const started = await ExamAttempt.find({ examGroup: 'DAFP', status: 'in_progress', deletedAt: null, dafpBaseRoleRemovedId: { $ne: null } })
@@ -117,12 +121,15 @@ class NotificationDispatcher {
       if (await IntegrationNotification.exists({ key: notifications.startKey(a._id) })) continue;
       if (await notifications.createDafpStartNotification(a)) created += 1;
     }
-    const removed = await ExamAttempt.find({ examGroup: 'DAFP', deletedAt: { $ne: null }, dafpBaseRoleRemovedId: { $ne: null } })
-      .select('_id').sort({ deletedAt: -1 }).limit(300).lean();
-    for (const a of removed) {
-      if (await IntegrationNotification.exists({ key: `result:${a._id}` })) continue;
-      const full = await ExamAttempt.findById(a._id).select('-snapshot');
-      if (await notifications.syncResultNotification(full)) created += 1;
+    const released = await ExamAttempt.find({
+      examGroup: 'DAFP',
+      dafpBaseRoleRemovedId: { $ne: null },
+      discordUserId: { $ne: null },
+      'dafpBaseRole.restoreConfirmedAt': null,
+      $or: [{ status: { $ne: 'in_progress' } }, { deletedAt: { $ne: null } }],
+    }).select('-snapshot -auditTrail -focusEvents -streamEvents').sort({ updatedAt: -1 }).limit(300);
+    for (const a of released) {
+      if (await notifications.ensureBaseRoleRestore(a)) created += 1;
     }
     return created;
   }

@@ -14,7 +14,7 @@
   function fmtDate(d) { return d ? new Date(d).toLocaleString('pt-BR') : '—'; }
   const $ = (id) => document.getElementById(id);
 
-  const KIND_TEXT = { result: 'Aviso de resultado', promotion_announcement: 'Anúncio de promoção', template_test: 'Teste de mensagem', panel_update: 'Atualização do painel', dafp_started: 'DAFP: início (retirar Role base)' };
+  const KIND_TEXT = { result: 'Aviso de resultado', promotion_announcement: 'Anúncio de promoção', template_test: 'Teste de mensagem', panel_update: 'Atualização do painel', dafp_started: 'DAFP: início (retirar Role base)', dafp_base_restore: 'DAFP: devolver Role base' };
   const NOTIF_STATUS = {
     pending: ['Na fila', 'badge-warn'],
     dispatched: ['Webhook disparado (aguardando BotGhost)', 'badge-warn'],

@@ -298,6 +298,7 @@ A consulta da sessão, a lista de resultados e a reserva (`claim`) de avisos DAF
 | Como terminou | `finishReason`: `FINALIZADA_PELO_ALUNO` \| `TEMPO_ESGOTADO` \| `ENCERRADA_PELO_ADMIN` |
 | Cargo de aprovado desta prova | `approvedRoleId`; `resultRoleId` = o cargo de aprovado **só se aprovado** (vazio caso contrário) |
 | Cargos globais DAFP (configuração atual) | **`dafpBaseRoleId`** (Role base) e **`dafpPerfectScoreRoleId`** (Mérito em Proficiência) |
+| **Situação da Role base nesta tentativa** | **`dafpBaseRoleState`**: vazio (Role base não foi retirada) \| `SUSPENSA` (prova em andamento) \| `DEVOLUCAO_PENDENTE` (a prova saiu de "em andamento" e o BotGhost ainda não confirmou a devolução) \| `DEVOLVIDA` (devolução confirmada) — seção E.1 |
 | Canal do resultado | `resultChannelId` (o da prova; se vazio, o **canal padrão DAFP**) |
 | Finalizada em | `finishedAt` (ISO 8601, UTC) e `finishedAtText` (horário de Brasília) |
 | Resultado já publicado pelo webhook? | `resultPublished` (`"true"`/`"false"`) |
@@ -319,7 +320,7 @@ A consulta da sessão, a lista de resultados e a reserva (`claim`) de avisos DAF
 ### Os três cargos
 | Cargo | Onde se configura | Quando |
 |---|---|---|
-| **Role base** (ex.: Bombeiros Militares da Fluxo) | aba **Integração BotGhost → Provas DAFP → Cargos automáticos DAFP → "Role obrigatória durante o fluxo"** (global) | **REMOVIDA** quando o aluno **inicia** a prova; **ADICIONADA de volta** em **qualquer** encerramento definitivo (aprovado, reprovado, tempo esgotado, encerrado pelo admin, resultado excluído) |
+| **Role base** (ex.: Bombeiros Militares da Fluxo) | aba **Integração BotGhost → Provas DAFP → Cargos automáticos DAFP → "Role obrigatória durante o fluxo"** (global) | **REMOVIDA** quando o aluno **inicia** a prova; **ADICIONADA de volta** sempre que a prova **deixa de estar em andamento**, por **qualquer** motivo (aprovado, reprovado, tempo esgotado/abandono, encerrado pelo admin, resultado excluído/cancelado). Regras completas na seção E.1 |
 | **Cargo de aprovado da prova** (ex.: Aprovado Prova Aspirante) | cada prova → **⚙ Integração / Resultado → "ID do cargo de APROVADO"** | **ADICIONADO** só se `resultStatus = APROVADO` |
 | **Mérito em Proficiência** | aba **Integração BotGhost → Provas DAFP → Cargos automáticos DAFP → "Mérito em Proficiência"** (global) | **ADICIONADO** só se `perfectScore = "true"` |
 
@@ -332,9 +333,9 @@ A consulta da sessão, a lista de resultados e a reserva (`claim`) de avisos DAF
    - O site cria **UM** aviso `dafp_started` → **REMOVE** a Role base.
    - Recarregar a página, reconectar ou clicar de novo **não** cria outro (a chave do aviso é única por tentativa).
    - Abrir o link sem começar a prova não remove nada.
-3. **Encerramento definitivo** (`FINALIZADA`, ou resultado excluído):
-   - o aviso de resultado (`result`) traz as ações de fim, com a mensagem;
-   - se o resultado foi excluído antes de publicar, o aviso vem sem mensagem e só devolve a base.
+3. **A prova deixa de estar em andamento** (finalizada, tempo esgotado, encerrada pelo admin, resultado excluído):
+   - o site cria **UM** aviso próprio `dafp_base_restore` → **ADD** da Role base, **sem mensagem**. Ele não depende da mensagem de resultado, do canal, do modelo nem de existir resultado acadêmico;
+   - se houver resultado a publicar, o aviso de resultado (`result`) traz a mensagem e as ações de fim (ADD base, aprovado, Mérito). O ADD da Role base aparece nos dois: repetir é seguro, e o que chegar primeiro resolve (o outro vira redundante ou é cancelado).
 
 ### Posições FIXAS das ações
 | Posição | Início (`DAFP_STARTED`) | Fim (`DAFP_FINISHED`) |
@@ -358,7 +359,10 @@ A consulta da sessão, a lista de resultados e a reserva (`claim`) de avisos DAF
 | Sem aprovação automática, 10/10 | NAO_APLICAVEL | true | ADD base | — | ADD Mérito |
 | Sem aprovação automática, 5/10 | NAO_APLICAVEL | false | ADD base | — | — |
 | Iniciou e o admin encerrou a sala | NAO_APLICAVEL | false | ADD base | — | — |
-| Iniciou e o resultado foi excluído | — | — | ADD base (sem mensagem) | — | — |
+| Iniciou e abandonou (fechou a aba e não voltou) → o prazo da prova acabou | conforme a nota do que respondeu | conforme a nota | ADD base | conforme `resultStatus` | conforme `perfectScore` |
+| Iniciou e o resultado foi excluído/invalidado (cancelada) | — | — | ADD base (só no aviso `dafp_base_restore`, sem mensagem) | — | — |
+
+Em **todas** as linhas a partir de "6/10", além do aviso de resultado, existe o aviso próprio `dafp_base_restore` com **só** a posição 1 = `ADD` Role base.
 
 Se um cargo não estiver configurado no painel, a posição correspondente vem desligada (`"false"`).
 
@@ -368,15 +372,89 @@ Se um cargo não estiver configurado no painel, a posição correspondente vem d
   - um único aviso de resultado por tentativa;
   - as ações de fim vêm **só até a primeira entrega confirmada**. Edições posteriores (ex.: prova oral lançada no admin, resultado excluído depois de publicado) editam a mensagem com as posições 1–3 desligadas.
 - **Finalização duplicada** (clique duplo, recarregar, tempo esgotado ao mesmo tempo, admin encerrando) gera **um** resultado e **um** aviso (testado com chamadas simultâneas).
-- **Ordem:** a devolução nunca passa na frente da remoção.
+- **Ordem:** a devolução nunca passa na frente da remoção (e vice-versa).
   - Se a prova terminar antes de o BotGhost executar a remoção do início, a remoção é **cancelada** (a devolução já deixa o aluno com a Role).
-  - Se a remoção estiver sendo executada naquele instante, o `claim` do resultado responde `409 not_ready` e o site tenta de novo sozinho em seguida.
+  - Se uma remoção do mesmo aluno estiver com o BotGhost naquele instante, o `claim` da devolução (ou do resultado com ADD base) responde `409 not_ready` e o site tenta de novo sozinho em seguida.
+  - Se uma devolução do mesmo aluno estiver com o BotGhost e ele iniciar outra prova, o `claim` da nova remoção responde `409 not_ready` até a devolução ser confirmada.
 - **Falha no Discord/BotGhost não desfaz a prova.**
   - A tentativa continua iniciada, e a nota e a aprovação continuam gravadas.
   - O aviso segue a política da fila: nova tentativa com espera; depois de esgotar, fica "com falha" e reprocessável pela aba Integração → **Reprocessar agora**.
   - O erro fica registrado (`lastError`) para diagnóstico.
 - **Estado desejado, não erro:** adicionar um cargo que o aluno já tem ou remover um que ele não tem deixa o mesmo estado final. Por isso o site pode repetir uma ação de cargo com segurança (ex.: reserva vencida sem confirmação).
-- **Rede de segurança:** se o site cair entre o início da prova e a criação do aviso (ou entre a exclusão e o aviso de devolução), a reconciliação periódica recria o aviso que faltou, sem duplicar.
+- **Rede de segurança:** a reconciliação periódica recria o aviso de remoção que faltou e **garante** a devolução de toda prova que saiu de "em andamento" sem devolução confirmada (seção E.1).
+
+### E.1 Proteção da Role base (estado desejado)
+
+**Regra fundamental:** se o aluno **não** está realizando **agora** uma prova DAFP efetivamente em andamento, ele precisa **ter** a Role base (Bombeiros Militares da Fluxo). O site decide **quando** agir; o BotGhost só executa a ordem.
+
+| Situação da prova DAFP do aluno | Estado desejado da Role base |
+|---|---|
+| Existe uma prova DAFP **efetivamente em andamento** | **AUSENTE** |
+| Não existe nenhuma | **PRESENTE** |
+
+"Efetivamente em andamento" = a tentativa está `EM_ANDAMENTO` **e** não foi excluída/invalidada pelo admin.
+
+#### Quando o site considera que a prova COMEÇOU (gera o REMOVE)
+- Quando o aluno, na tela do link, conclui o compartilhamento de tela e clica para **começar a prova**: nesse instante o site cria a tentativa (`CRIADA → EM_ANDAMENTO`) e **um** aviso `dafp_started` com `roleAction1Type = "REMOVE"`.
+- **Não** gera REMOVE: criar a sala, abrir o link, ver a tela de boas-vindas, compartilhar a tela sem começar, recarregar a página, reconectar, perder a conexão e voltar.
+- Só é gerado se a **Role obrigatória durante o fluxo** estiver configurada no painel e a sessão tiver o aluno do Discord.
+
+#### Quando o site considera que a prova TERMINOU (gera o ADD)
+A devolução depende do **estado operacional** da tentativa, nunca do botão "Finalizar" nem do resultado acadêmico. Toda saída de "em andamento" gera o ADD:
+
+| O que aconteceu | Como o site detecta | Estado da tentativa | Resultado acadêmico (`resultStatus`) | ADD Role base |
+|---|---|---|---|---|
+| Aluno clicou em Finalizar | pedido do aluno | `FINALIZADA`, `finishReason = FINALIZADA_PELO_ALUNO` | pela nota | **sim** |
+| Tempo da prova acabou | o servidor confere o prazo de cada prova a cada 15 s (inclusive logo depois de o site reiniciar) e também quando o aluno volta à página | `FINALIZADA`, `finishReason = TEMPO_ESGOTADO` | pela nota do que foi respondido | **sim** |
+| **Abandono** (fechou a aba, caiu a internet e não voltou) | é o mesmo caso acima: a prova fica em andamento até o **prazo da própria prova** e então é encerrada pelo servidor | `FINALIZADA`, `finishReason = TEMPO_ESGOTADO` | pela nota do que foi respondido | **sim** |
+| Admin encerrou a sala durante a prova (painel → Encerrar sala) | ação do admin | `FINALIZADA`, `finishReason = ENCERRADA_PELO_ADMIN` | `NAO_APLICAVEL` (**cancelamento**: sem aprovado, sem reprovado, sem Mérito) | **sim** |
+| Admin excluiu/invalidou o resultado com a prova em andamento (cancelada) | ação do admin (Resultados → Excluir nota) | excluída; a sala volta a aceitar uma nova tentativa | nenhum | **sim** (sem mensagem) |
+
+**Abandono não é reprovação automática.**
+- Desconexão, refresh, queda de internet, perda do WebSocket/WebRTC ou fechar a página **não** encerram a prova: o aluno pode voltar e continuar do ponto em que estava, com o mesmo cronômetro.
+- **Não existe** um "tempo de desconexão" que encerre a prova. O único encerramento automático é o **prazo da própria prova** (duração configurada), que já existia antes desta atualização.
+- Nesse encerramento a prova é corrigida com o que foi respondido. Essa é a regra acadêmica que já existia para "tempo esgotado": o resultado sai APROVADO, REPROVADO ou NAO_APLICAVEL **pela nota**, nunca "reprovado por abandono".
+
+#### Estado persistido na tentativa (para recuperação)
+Cada tentativa DAFP guarda (no banco, campo `dafpBaseRole`):
+
+| Campo | Quando é preenchido |
+|---|---|
+| `suspendedAt` | a tentativa entrou em andamento com a Role base configurada |
+| `removeRequestedAt` | o aviso de remoção (`dafp_started`) foi criado |
+| `removeConfirmedAt` | o BotGhost confirmou a remoção (`ack` do `dafp_started`) |
+| `releasedAt` | a tentativa saiu de "em andamento" (qualquer motivo) |
+| `restoreRequestedAt` | o aviso de devolução (`dafp_base_restore`) foi criado |
+| `restoreConfirmedAt` | o BotGhost confirmou um ADD da Role base desta tentativa |
+| `restoreConfirmedVia` | qual aviso confirmou: `dafp_base_restore` ou `result` |
+
+Além disso, `dafpBaseRoleRemovedId` guarda **qual** Role foi retirada: é exatamente essa que volta, mesmo que a configuração mude no meio.
+
+O BotGhost vê o resumo em **`dafpBaseRoleState`** (seção D): `SUSPENSA` → `DEVOLUCAO_PENDENTE` → `DEVOLVIDA`.
+
+#### Recuperação em caso de falha
+A prova **nunca** depende do Discord: iniciar, finalizar, cancelar e corrigir acontecem no site mesmo com o BotGhost fora do ar. As ações de cargo ficam na fila até serem confirmadas.
+
+| Falha | O que acontece |
+|---|---|
+| Webhook do BotGhost fora do ar / erro de rede / 429 / 5xx | o aviso volta para a fila com espera crescente; o erro fica em `lastError` |
+| BotGhost reservou e não confirmou em 2 minutos (travou, timeout) | aviso só de cargos **volta para a fila** e é refeito (seguro) |
+| BotGhost respondeu `outcome: "failed"` (ex.: bot sem permissão, Discord indisponível) | nova tentativa com espera; depois de 6 falhas fica "com falha" |
+| Aviso de devolução "com falha" ou cancelado, e a devolução **não** confirmada | a **reconciliação** (ao ligar o site e a cada 5 minutos) o **recoloca na fila sozinha**, sem depender do admin. O admin também pode usar "Reprocessar agora" |
+| Site reiniciou (Render) entre o fim da prova e a criação do aviso, ou o aviso sumiu | a reconciliação **recria** o aviso de devolução |
+| Site reiniciou com a prova em andamento | a prova continua; se o prazo acabar, o servidor encerra ao voltar e gera o ADD |
+
+A reconciliação procura toda tentativa DAFP que teve a Role base retirada, **não** está mais em andamento e **não** tem `restoreConfirmedAt`, e garante um aviso de devolução na fila. Ela só para quando o BotGhost confirma. **Preferimos repetir um ADD a arriscar deixar o aluno sem a Role.**
+
+#### Idempotência e ordem
+- `ADD` = "garantir que a Role esteja **presente**"; `REMOVE` = "garantir que esteja **ausente**". Repetir qualquer um deixa o mesmo estado.
+- **Uma** remoção e **uma** devolução por tentativa (chaves únicas `dafp_started:<tentativa>` e `dafp_restore:<tentativa>`). Encerramentos simultâneos (Finalizar + tempo + admin) geram **um** aviso de cada.
+- **Nunca remove depois de devolver:**
+  - o `claim` de um `dafp_started` cuja prova já terminou responde `410 nothing_to_do`;
+  - uma remoção ainda não executada é cancelada no fim;
+  - se o BotGhost confirmar uma remoção **fora da reserva** (venceu enquanto a prova terminava), o site **reabre** a devolução e pede o ADD de novo.
+- **Duas provas DAFP do mesmo aluno ao mesmo tempo:** terminar uma enquanto a outra está em andamento **não** devolve a Role, porque o estado desejado ainda é AUSENTE. O `claim` da devolução responde `410 nothing_to_do` e o resultado vem com a posição 1 desligada. Quando a última terminar, a Role volta, e a reconciliação ainda repete o ADD da primeira (seguro).
+- Se a Role base já foi devolvida pelo aviso de resultado, o aviso próprio que ainda não saiu é cancelado, e um `claim` atrasado dele responde `410 nothing_to_do`.
 
 ---
 
@@ -389,7 +467,7 @@ Se um cargo não estiver configurado no painel, a posição correspondente vem d
 
 As variáveis enviadas ao evento:
 - `{tcel_notification_id}`: ID do aviso;
-- `{tcel_notification_kind}`: `dafp_started` (início DAFP), `result` (resultado TCEL **ou** DAFP), `promotion_announcement`, `template_test` ou `panel_update`.
+- `{tcel_notification_kind}`: `dafp_started` (início DAFP: remover a Role base), `dafp_base_restore` (DAFP: devolver a Role base), `result` (resultado TCEL **ou** DAFP), `promotion_announcement`, `template_test` ou `panel_update`.
 
 ### 2. O evento reserva o aviso (claim)
 **`POST /notifications/{tcel_notification_id}/claim`**
@@ -400,11 +478,11 @@ As variáveis enviadas ao evento:
 |---|---|---|
 | 409 | `already_claimed` | outra execução está cuidando |
 | 409 | `already_delivered` | já foi entregue |
-| 409 | `not_ready` | ainda não pode (prova não finalizada, ou remoção do início em andamento); o site redispara depois sozinho |
+| 409 | `not_ready` | ainda não pode (prova não finalizada, ou uma remoção/devolução da Role base do mesmo aluno está com o BotGhost agora); o site redispara depois sozinho |
 | 409 | `ambiguous_needs_review` | o admin precisa conferir o canal |
 | 409 | `failed` | falhou; reprocessar no painel |
 | 409 | `config_missing` | canal de resultados DAFP não configurado; o site redispara depois |
-| 410 | `cancelled` / `nothing_to_do` | nada a fazer (ex.: a prova terminou antes da remoção do início) |
+| 410 | `cancelled` / `nothing_to_do` | nada a fazer. Ex.: a prova terminou antes da remoção do início; a Role base já foi devolvida; o aluno está fazendo outra prova DAFP (a Role continua ausente) |
 | 404 | `not_found` | aviso inexistente |
 
 **Campos de controle de TODA reserva `200 claimed`:**
@@ -412,7 +490,7 @@ As variáveis enviadas ao evento:
 | Campo | Valores / uso |
 |---|---|
 | `notificationId`, `leaseToken`, `leaseUntil` | reserva (a reserva vale 2 minutos) |
-| `kind` | `dafp_started` \| `result` \| `promotion_announcement` \| `template_test` \| `panel_update` |
+| `kind` | `dafp_started` \| `dafp_base_restore` \| `result` \| `promotion_announcement` \| `template_test` \| `panel_update` |
 | **`notificationActionType`** | **`DAFP_STARTED`** \| **`DAFP_FINISHED`** \| `TCEL_RESULT` \| `PROMOTION_ANNOUNCEMENT` \| `TEMPLATE_TEST` \| `PANEL_UPDATE` |
 | **`publishMessage`** | `"true"` = publicar/editar a mensagem; `"false"` = **não publicar nada**, só executar os cargos e confirmar |
 | `action` | `send` (nova mensagem) \| `edit` (editar `messageId`) \| `none` (sem mensagem) |
@@ -423,7 +501,14 @@ As variáveis enviadas ao evento:
 | `roleAction1Enabled` … `roleAction3MemberDiscordId` | campos fixos por posição (seção E) |
 | `applyRole`, `roleId`, `memberDiscordId` | **LEGADO** (seção I) |
 
-Os avisos DAFP trazem também todos os campos da seção D.
+Os avisos DAFP trazem também todos os campos da seção D, incluindo `dafpBaseRoleState`.
+
+**Como identificar cada ação sobre a Role base:**
+- **REMOVE** (tirar a Role base): `notificationActionType = "DAFP_STARTED"` e `roleAction1Type = "REMOVE"`. É o **único** caso em que aparece `REMOVE`.
+- **ADD** (devolver a Role base): `notificationActionType = "DAFP_FINISHED"` e `roleAction1Type = "ADD"`. Chega de duas formas:
+  - no aviso de **devolução** (`kind = dafp_base_restore`, `publishMessage = "false"`): só a posição 1;
+  - no aviso de **resultado** (`kind = result`, `publishMessage = "true"`): posição 1 junto com as posições 2 e 3.
+- O tipo da ação está **sempre** em `roleActionNType`. O BotGhost não precisa deduzir nada pelo `kind`.
 
 ### 3a. Início — `DAFP_STARTED`
 Resposta real do claim (`kind = dafp_started`):
@@ -563,10 +648,111 @@ Mensagem pronta real (`data.message`), modelo **"Resultado DAFP (canal)"**:
    - `action = "edit"` → editar o `messageId` no `channelId`;
 5. confirmar com `ack` **com o `messageId`** da mensagem.
 
-**Resultado excluído antes de publicar** (real): `notificationActionType = "DAFP_FINISHED"`, `publishMessage = "false"`, `action = "none"`, `channelId = ""`, `roleAction1` = `ADD` Role base, e posições 2 e 3 desligadas.
-- O BotGhost só adiciona a Role base e confirma **sem** `messageId`.
+**Resultado excluído antes de publicar:** o aviso de resultado é cancelado (nada aparece no canal). A Role base volta pelo aviso de devolução (3c).
 
 **Edições depois da primeira entrega** (`action = "edit"`): as posições 1–3 vêm desligadas. O BotGhost só edita a mensagem.
+
+### 3c. Devolução da Role base — `dafp_base_restore` (`DAFP_FINISHED` sem mensagem)
+Criado **em toda** saída de "em andamento" (seção E.1), independente de haver mensagem ou resultado. Resposta real do claim (prova iniciada e **encerrada pelo admin** — cancelamento):
+```json
+{
+  "ok": true,
+  "code": "claimed",
+  "message": "Notificação reservada.",
+  "data": {
+    "notificationId": "6ab7893627c8011803034b5a",
+    "kind": "dafp_base_restore",
+    "leaseToken": "eae30fbbf171699e82434b6d3a637577",
+    "leaseUntil": "2026-09-26T09:00:30.253Z",
+    "action": "none",
+    "channelId": "",
+    "messageId": "",
+    "keepComponents": "false",
+    "renderedRevision": "",
+    "templateKey": "",
+    "message": {
+      "content": "",
+      "embeds": [],
+      "allowed_mentions": {
+        "parse": [],
+        "users": [],
+        "roles": []
+      }
+    },
+    "native": {},
+    "discordBodyJson": "",
+    "displayText": "Notificação reservada.",
+    "notificationActionType": "DAFP_FINISHED",
+    "publishMessage": "false",
+    "applyRole": "false",
+    "roleId": "",
+    "memberDiscordId": "700000000000000101",
+    "sessionId": "6ab7893627c8011803034b26",
+    "attemptId": "6ab7893627c8011803034b31",
+    "sessionStatus": "FINALIZADA",
+    "examId": "6ab7893527c8011803034af0",
+    "examSlug": "aspirante",
+    "examName": "Aspirante",
+    "examGroup": "DAFP",
+    "studentDiscordId": "700000000000000101",
+    "studentMention": "<@700000000000000101>",
+    "studentDisplayName": "Aluno 0101",
+    "studentAvatarUrl": "",
+    "supervisorDiscordId": "700000000000000202",
+    "supervisorMention": "<@700000000000000202>",
+    "supervisorDisplayName": "Fiscal 0202",
+    "score": "10",
+    "maxScore": "10",
+    "scoreText": "10/10",
+    "autoApproval": "false",
+    "passingScore": "",
+    "resultStatus": "NAO_APLICAVEL",
+    "passed": "",
+    "resultRoleId": "",
+    "approvedRoleId": "",
+    "failedRoleId": "",
+    "resultChannelId": "600000000000000009",
+    "finishedAt": "2026-09-26T08:58:30.221Z",
+    "finishedAtText": "26/09/2026, 05:58",
+    "resultPublished": "false",
+    "perfectScore": "false",
+    "finishReason": "ENCERRADA_PELO_ADMIN",
+    "dafpBaseRoleId": "810000000000000001",
+    "dafpPerfectScoreRoleId": "810000000000000002",
+    "dafpBaseRoleState": "DEVOLUCAO_PENDENTE",
+    "roleActionsPhase": "FINISH",
+    "roleActions": [
+      {
+        "action": "ADD",
+        "roleId": "810000000000000001",
+        "memberDiscordId": "700000000000000101"
+      }
+    ],
+    "roleAction1Enabled": "true",
+    "roleAction1Type": "ADD",
+    "roleAction1RoleId": "810000000000000001",
+    "roleAction1MemberDiscordId": "700000000000000101",
+    "roleAction2Enabled": "false",
+    "roleAction2Type": "",
+    "roleAction2RoleId": "",
+    "roleAction2MemberDiscordId": "",
+    "roleAction3Enabled": "false",
+    "roleAction3Type": "",
+    "roleAction3RoleId": "",
+    "roleAction3MemberDiscordId": ""
+  }
+}
+```
+- **O que o BotGhost faz** (é o mesmo ramo `DAFP_FINISHED`, com `publishMessage = "false"`):
+  1. **adicionar** `roleAction1RoleId` ao membro `roleAction1MemberDiscordId`;
+  2. posições 2 e 3 vêm sempre `"false"`;
+  3. **não** publicar nada;
+  4. confirmar com `ack` **sem `messageId`**: `{ "leaseToken": "<data.leaseToken>", "outcome": "delivered" }`.
+- **Se o ADD falhar:** `ack` com `outcome: "failed"`. A prova continua encerrada, e o site repete o aviso (seção E.1 → Recuperação).
+- Respostas reais quando **não há nada a fazer** (o BotGhost só para, sem `ack`):
+  - Role já devolvida: `{"ok": false, "code": "nothing_to_do", "message": "A Role base desta prova já foi devolvida.", "data": {"displayText": "A Role base desta prova já foi devolvida."}}` (HTTP 410)
+  - aluno fazendo outra prova DAFP: `{"ok": false, "code": "nothing_to_do", "message": "O aluno está fazendo outra prova DAFP agora: a Role base volta quando ela terminar.", "data": {"displayText": "O aluno está fazendo outra prova DAFP agora: a Role base volta quando ela terminar."}}` (HTTP 410)
+  - remoção pedida de novo depois do fim: `{"ok": false, "code": "nothing_to_do", "message": "A prova já terminou: a Role base não precisa mais sair.", "data": {"displayText": "A prova já terminou: a Role base não precisa mais sair."}}` (HTTP 410)
 
 ### 4. Confirmação (ack)
 **`POST /notifications/{tcel_notification_id}/ack`** (Headers: `Authorization`; `Content-Type: application/json`).
@@ -582,12 +768,19 @@ Mensagem pronta real (`data.message`), modelo **"Resultado DAFP (canal)"**:
   ```json
   { "ok": true, "code": "acked", "message": "Entrega confirmada.", "data": { "notificationId": "6ab7844fc58518746e9be9f6", "messageId": "", "status": "delivered", "displayText": "Entrega confirmada." } }
   ```
-- `200 already_acked`: `ack` repetido; nada muda;
-- `200 will_retry` / `200 failed`: falha registrada, com nova tentativa ou esgotada;
+- `200 already_acked`: `ack` repetido; nada muda. Real: `{"ok": true, "code": "already_acked", "message": "Confirmação já registrada.", "data": {"notificationId": "6ab7893627c8011803034b5a", "messageId": "", "displayText": "Confirmação já registrada."}}`;
+- `200 will_retry` / `200 failed`: falha registrada, com nova tentativa ou esgotada. Real: `{"ok": true, "code": "will_retry", "message": "Falha registrada; nova tentativa mais tarde.", "data": {"displayText": "Falha registrada; nova tentativa mais tarde."}}`;
 - `400 invalid_message_id`: aviso **com** mensagem confirmado sem `messageId`;
 - `409 lease_mismatch`: a reserva venceu ou foi assumida por outra execução.
   - Reserva vencida de aviso **só de cargos**: volta para a fila e é refeita (seguro).
   - Reserva vencida de **envio de mensagem**: fica "ambígua", e o admin decide no painel.
+
+**O que o `ack` registra na tentativa:**
+- `ack` de um `dafp_started` → `removeConfirmedAt`;
+- `ack` de um aviso com `roleAction1Type = "ADD"` → `restoreConfirmedAt`, e `dafpBaseRoleState` passa a `DEVOLVIDA`;
+- quando o resultado confirma o ADD primeiro, o aviso de devolução que ainda não saiu é cancelado;
+- **só o `ack` do BotGhost confirma cargo.** Se o admin marcar uma entrega "ambígua" como publicada, a devolução própria continua valendo até o BotGhost confirmar;
+- `ack` `delivered` de uma remoção cuja reserva já não vale (`409 lease_mismatch`), com a prova já encerrada: o site **reabre** a devolução e pede o ADD de novo.
 
 ---
 
@@ -612,6 +805,7 @@ Resposta real, **em andamento** (trechos):
     "studentDiscordId": "700000000000000101", "supervisorDiscordId": "700000000000000202",
     "score": "", "maxScore": "10", "resultStatus": "", "perfectScore": "", "finishReason": "",
     "dafpBaseRoleId": "810000000000000001", "dafpPerfectScoreRoleId": "810000000000000002",
+    "dafpBaseRoleState": "SUSPENSA",
     "roleActionsPhase": "START",
     "roleActions": [ { "action": "REMOVE", "roleId": "810000000000000001", "memberDiscordId": "700000000000000101" } ],
     "roleAction1Enabled": "true", "roleAction1Type": "REMOVE", "roleAction1RoleId": "810000000000000001", "roleAction1MemberDiscordId": "700000000000000101",
@@ -637,6 +831,8 @@ Resposta real, **finalizada com gabarito** (trechos):
   }
 }
 ```
+
+Depois do fim, `dafpBaseRoleState` vem `DEVOLUCAO_PENDENTE` até o BotGhost confirmar o ADD e `DEVOLVIDA` depois (valores reais do teste).
 
 **Erros:** `404 session_not_found` e `409 session_not_dafp`.
 
@@ -688,7 +884,9 @@ Resposta real, **finalizada com gabarito** (trechos):
 | `applyRole`, `roleId`, `memberDiscordId` (no claim) | **LEGADOS, mantidos.** Hoje significam só o cargo de aprovado: `applyRole = "true"` e `roleId` = cargo de aprovado **só** no primeiro envio de um resultado APROVADO. `memberDiscordId` = aluno. **Não** cobrem a Role base nem o Mérito. **A configuração nova deve usar `roleAction1..3`.** |
 | `failedRoleId` | **LEGADO.** Não é mais usado; vem vazio em resultados novos (resultados antigos podem trazer o valor que tinham). |
 | `resultRoleId` | Agora só o cargo de aprovado (vazio se não aprovado). |
-| Rotas | Nenhuma rota foi removida ou renomeada; nenhuma rota nova foi criada nesta atualização. |
+| Resultado DAFP excluído antes de publicar | Antes vinha como aviso `result` sem mensagem. **Agora** a devolução vem pelo aviso próprio `dafp_base_restore`, com o **mesmo formato** (`DAFP_FINISHED`, `publishMessage = "false"`, só a posição 1). O ramo `DAFP_FINISHED` já existente atende sem mudança. |
+| Novo `kind` | `dafp_base_restore`. O TCEL nunca recebe esse aviso. |
+| Rotas | Nenhuma rota foi removida ou renomeada; nenhuma rota nova foi criada nestas atualizações. |
 
 ---
 
@@ -764,7 +962,8 @@ O evento recebe `{tcel_notification_id}` e `{tcel_notification_kind}` e faz:
    2. **não** publicar nada (`publishMessage = "false"`);
    3. `ack`: `{ "leaseToken": "<data.leaseToken>", "outcome": "delivered" }`;
    4. se a remoção falhar → `ack` com `{ "leaseToken": "…", "outcome": "failed", "error": "…" }`.
-4. **Se `notificationActionType = "DAFP_FINISHED"` (FIM):**
+4. **Se `notificationActionType = "DAFP_FINISHED"` (FIM e DEVOLUÇÃO da Role base):**
+   - chega de duas formas: com mensagem (`kind = result`, `publishMessage = "true"`) ou **só a devolução** (`kind = dafp_base_restore`, `publishMessage = "false"`, só a posição 1). **O mesmo ramo atende os dois**, desde que a publicação fique dentro da condição `publishMessage = "true"`:
    1. se `roleAction1Enabled = "true"` → **adicionar** `roleAction1RoleId` (Role base) ao `roleAction1MemberDiscordId`;
    2. se `roleAction2Enabled = "true"` → **adicionar** `roleAction2RoleId` (cargo de aprovado) ao `roleAction2MemberDiscordId`;
    3. se `roleAction3Enabled = "true"` → **adicionar** `roleAction3RoleId` (Mérito em Proficiência) ao `roleAction3MemberDiscordId`;
@@ -785,6 +984,7 @@ O evento recebe `{tcel_notification_id}` e `{tcel_notification_kind}` e faz:
 - Assim dá para usar blocos fixos:
   - "remover cargo" no ramo `DAFP_STARTED`;
   - "adicionar cargo" nos três slots do ramo `DAFP_FINISHED`.
+- **Não crie** lógica própria de "quando devolver" no BotGhost (timer, saída do canal, etc.): o site já decide e manda a ordem. Se o BotGhost errar ou cair, o site repete.
 
 ### 8. Consultar o resultado (opcional)
 - `GET /dafp/sessions/{sessionId}` ou `GET /dafp/results?pageSize=1&student=<ID>`, para mostrar ao professor em privado.
@@ -796,8 +996,14 @@ CRIAÇÃO   professor: /provas-dafp → aluno + avaliador + prova → POST /dafp
           → links (aluno / avaliador) em privado.  Nenhum cargo muda.
 INÍCIO    aluno começa a prova → site cria 1 aviso dafp_started → webhook
           → claim (DAFP_STARTED) → REMOVE Role base → ack (sem messageId)
-FIM       aluno termina / tempo esgota / admin encerra → site calcula nota,
-          aprovação e perfectScore (uma vez) → webhook
-          → claim (DAFP_FINISHED) → ADD Role base → [ADD aprovado] → [ADD Mérito]
-          → publica o resultado → ack (com messageId)
+FIM       aluno termina / tempo esgota (inclui abandono) / admin encerra /
+          resultado excluído → a prova sai de "em andamento"
+          → aviso dafp_base_restore → webhook → claim (DAFP_FINISHED,
+            publishMessage "false") → ADD Role base → ack (sem messageId)
+          → se houver resultado: site calcula nota, aprovação e perfectScore
+            (uma vez) → webhook → claim (DAFP_FINISHED, publishMessage "true")
+            → ADD Role base → [ADD aprovado] → [ADD Mérito]
+            → publica o resultado → ack (com messageId)
+FALHA     BotGhost/Discord fora → o aviso fica na fila (lastError); o site
+          repete e a reconciliação (5 min) garante a devolução até o ack
 ```

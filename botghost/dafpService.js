@@ -138,8 +138,18 @@ function resultFields(attempt, { room = null, exam = null, config, published = f
     perfectScore: decided ? boolText(o.perfectScore != null ? Boolean(o.perfectScore) : isPerfectScore(score, max)) : '',
     finishReason: decided ? o.finishReason || '' : '',
     ...globalRoleFields(config),
+    dafpBaseRoleState: baseRoleState(attempt),
     ...phaseRoleActions(attempt, finished),
   };
+}
+
+// Situação da Role base nesta tentativa: "" (não retirada) | SUSPENSA (prova
+// em andamento) | DEVOLUCAO_PENDENTE (prova saiu de "em andamento", BotGhost
+// ainda não confirmou a devolução) | DEVOLVIDA (confirmada).
+function baseRoleState(attempt) {
+  if (!attempt || !attempt.dafpBaseRoleRemovedId) return '';
+  if (attempt.status === 'in_progress' && !attempt.deletedAt) return 'SUSPENSA';
+  return attempt.dafpBaseRole && attempt.dafpBaseRole.restoreConfirmedAt ? 'DEVOLVIDA' : 'DEVOLUCAO_PENDENTE';
 }
 
 // Ações de cargo da fase atual da sessão (as mesmas que a fila entrega ao

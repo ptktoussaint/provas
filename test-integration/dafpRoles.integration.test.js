@@ -221,13 +221,15 @@ test('9: iniciada e encerrada pelo admin — só devolve a Role base; excluída 
   assert.deepEqual(slots(d), [`ADD ${BASE} ${STUDENT}`, '-', '-']);
   assert.equal(d.finishReason, 'ENCERRADA_PELO_ADMIN');
 
-  // Resultado excluído com a prova em andamento: devolve a base SEM publicar.
+  // Resultado excluído com a prova em andamento: devolve a base SEM publicar
+  // (aviso próprio de devolução; o resultado não é publicado).
   const room2 = await createRoom('aspirante', '700000000000000555');
   const at2 = await start(room2);
   const st = await claimKey(`dafp_started:${at2._id}`);
   await ack(st.n, st.d);
   await M.results.softDeleteResult({ attemptId: String(at2._id), reason: 'cancelada', actor: 'admin:t' });
-  const del = await claimKey(`result:${at2._id}`);
+  assert.equal(await M.Notification.countDocuments({ key: `result:${at2._id}` }), 0, 'nada a publicar');
+  const del = await claimKey(`dafp_restore:${at2._id}`);
   assert.equal(del.c.status, 200, JSON.stringify(del.c.body));
   assert.equal(del.d.notificationActionType, 'DAFP_FINISHED');
   assert.equal(del.d.publishMessage, 'false');
@@ -237,8 +239,7 @@ test('9: iniciada e encerrada pelo admin — só devolve a Role base; excluída 
   // A varredura de expiração finalizando a tentativa excluída depois não
   // gera outra ação.
   await M.lifecycle.finalizeAttempt(await M.ExamAttempt.findById(at2._id), 'timeout');
-  const again = await M.Notification.findOne({ key: `result:${at2._id}` });
-  assert.equal(again.status, 'delivered');
+  assert.equal((await M.Notification.findOne({ key: `dafp_restore:${at2._id}` })).status, 'delivered');
   assert.equal(await M.Notification.countDocuments({ attemptId: at2._id }), 2, 'início + devolução, nada mais');
 });
 
@@ -347,9 +348,9 @@ test('rede de segurança: aviso de início ou de devolução que faltou é recri
 
   // Excluída em andamento e o aviso de devolução se perdeu.
   await M.results.softDeleteResult({ attemptId: String(attempt._id), reason: 'cancelada', actor: 'admin:t' });
-  await M.Notification.deleteMany({ key: `result:${attempt._id}` });
+  await M.Notification.deleteMany({ key: `dafp_restore:${attempt._id}` });
   await dispatcher.reconcile();
-  const { d } = await claimKey(`result:${attempt._id}`);
+  const { d } = await claimKey(`dafp_restore:${attempt._id}`);
   assert.deepEqual(slots(d), [`ADD ${BASE} ${STUDENT}`, '-', '-']);
   assert.equal(d.publishMessage, 'false');
 });

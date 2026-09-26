@@ -380,7 +380,7 @@ Reserva o aviso por 2 minutos e devolve o conteúdo **atual**.
   - `action`: `send` (nova mensagem) ou `edit` (editar a existente)
   - `channelId`, `messageId` (quando é `edit`), `keepComponents` (`"true"` no painel)
   - `kind`, `templateKey`, mensagem pronta (`native.*`, `discordBodyJson`)
-  - `notificationActionType` (sempre presente): `TCEL_RESULT`, `PROMOTION_ANNOUNCEMENT`, `TEMPLATE_TEST`, `PANEL_UPDATE` ou, no fluxo DAFP, `DAFP_STARTED` / `DAFP_FINISHED`. `publishMessage` (`"false"` = não publicar nada, só cargos). Ações de cargo `roleAction1..3*` (sempre presentes; `"false"` fora do DAFP). `applyRole`/`roleId`/`memberDiscordId` são legados. Detalhes do ciclo de cargos DAFP em **BOTGHOST_DAFP_IMPLEMENTACAO.md** (seções E e F). Nos avisos TCEL nada muda: continue como sempre.
+  - `notificationActionType` (sempre presente): `TCEL_RESULT`, `PROMOTION_ANNOUNCEMENT`, `TEMPLATE_TEST`, `PANEL_UPDATE` ou, no fluxo DAFP, `DAFP_STARTED` (remover a Role base) / `DAFP_FINISHED` (resultado, ou só a devolução da Role base no aviso `dafp_base_restore`). `publishMessage` (`"false"` = não publicar nada, só cargos). Ações de cargo `roleAction1..3*` (sempre presentes; `"false"` fora do DAFP). `applyRole`/`roleId`/`memberDiscordId` são legados. Detalhes do ciclo de cargos DAFP em **BOTGHOST_DAFP_IMPLEMENTACAO.md** (seções E e F). Nos avisos TCEL nada muda: continue como sempre.
 - **Sem 200 = não publique nada:**
 
 | code | Significado |

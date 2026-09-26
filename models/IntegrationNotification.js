@@ -15,8 +15,9 @@ const historySchema = new mongoose.Schema({
 
 const integrationNotificationSchema = new mongoose.Schema({
   // dafp_started: início real de uma prova DAFP — sem mensagem, só a
-  // remoção da Role base (ver botghost/notifications.js).
-  kind: { type: String, enum: ['result', 'promotion_announcement', 'template_test', 'panel_update', 'dafp_started'], required: true, index: true },
+  // remoção da Role base; dafp_base_restore: a prova saiu de "em andamento"
+  // — sem mensagem, só a devolução da Role base (ver botghost/notifications.js).
+  kind: { type: String, enum: ['result', 'promotion_announcement', 'template_test', 'panel_update', 'dafp_started', 'dafp_base_restore'], required: true, index: true },
   key: { type: String, required: true, unique: true },
   status: {
     type: String,
@@ -45,6 +46,11 @@ const integrationNotificationSchema = new mongoose.Schema({
     action: { type: String, default: null }, // send | edit | none (só cargos)
     renderedRevision: { type: Number, default: null },
     channelId: { type: String, default: null },
+    // Ação sobre a Role base entregue nesta reserva (REMOVE | ADD | null) e
+    // o membro: impede que uma remoção e uma devolução do mesmo aluno fiquem
+    // com o BotGhost ao mesmo tempo (ordem garantida).
+    baseRoleAction: { type: String, default: null },
+    memberDiscordId: { type: String, default: null },
   },
   claimCount: { type: Number, default: 0 },
   message: {

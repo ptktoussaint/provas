@@ -55,16 +55,15 @@ async function syncResultNotification(attempt) {
     const key = `result:${attempt._id}`;
     const revision = attempt.revision || 0;
     const deleted = Boolean(attempt.deletedAt);
+    // DAFP: a Role base volta por um aviso PRÓPRIO, que não depende da
+    // mensagem de resultado (canal, modelo, exclusão) nem do resultado
+    // acadêmico — só de a prova ter saído de "em andamento".
+    await ensureBaseRoleRestore(attempt);
     const existing = await IntegrationNotification.findOne({ key });
-    // DAFP com Role base retirada no início: TODO encerramento definitivo
-    // (finalizado, encerrado pelo admin ou excluído) precisa devolvê-la,
-    // mesmo sem mensagem para publicar.
-    const mustReturnRole = attempt.examGroup === 'DAFP' && Boolean(attempt.dafpBaseRoleRemovedId);
-    if (mustReturnRole && (deleted || isFinished(attempt))) await cancelPendingStart(attempt._id);
 
     if (!existing) {
-      if (deleted ? !mustReturnRole : !isFinished(attempt)) return null;
-      if (!deleted && !(attempt.discordSync && attempt.discordSync.wantsMessage)) return null;
+      if (deleted || !isFinished(attempt)) return null;
+      if (!(attempt.discordSync && attempt.discordSync.wantsMessage)) return null;
       try {
         return await IntegrationNotification.create({ kind: 'result', key, attemptId: attempt._id, targetRevision: revision, history: [{ event: 'created' }] });
       } catch (err) {
@@ -74,19 +73,9 @@ async function syncResultNotification(attempt) {
     }
 
     const neverSent = !existing.message.messageId;
-    const rolesPending = mustReturnRole && !existing.message.deliveredAt;
     const set = {};
     let extra = {};
-    if (deleted && neverSent && existing.status === 'delivered') {
-      // Só cargos já devolvidos (nada publicado): nada mais a fazer.
-    } else if (deleted && neverSent && rolesPending && ['pending', 'dispatched', 'failed'].includes(existing.status)) {
-      // Excluído antes de publicar, mas a Role base ainda precisa voltar:
-      // continua na fila (a reserva devolve só o cargo, sem mensagem).
-      if (existing.status === 'failed') {
-        Object.assign(set, { status: 'pending', nextDispatchAt: new Date(), dispatchAttempts: 0 });
-        extra = historyPush('requeued', 'excluído: devolver a Role base');
-      }
-    } else if (deleted && neverSent && ['pending', 'dispatched', 'failed'].includes(existing.status)) {
+    if (deleted && neverSent && ['pending', 'dispatched', 'failed'].includes(existing.status)) {
       // Excluído antes de ser publicado: nada deve aparecer no canal.
       set.status = 'cancelled';
       extra = historyPush('cancelled', 'resultado excluído antes da publicação');
@@ -117,13 +106,15 @@ function startKey(attemptId) {
 async function createDafpStartNotification(attempt) {
   try {
     if (!attempt || !attempt.dafpBaseRoleRemovedId || !attempt.discordUserId) return null;
-    return await IntegrationNotification.create({
+    const n = await IntegrationNotification.create({
       kind: 'dafp_started',
       key: startKey(attempt._id),
       attemptId: attempt._id,
       payload: { baseRoleId: attempt.dafpBaseRoleRemovedId, memberDiscordId: attempt.discordUserId },
       history: [{ event: 'created' }],
     });
+    await ExamAttempt.updateOne({ _id: attempt._id, 'dafpBaseRole.removeRequestedAt': null }, { $set: { 'dafpBaseRole.removeRequestedAt': new Date() } });
+    return n;
   } catch (err) {
     if (isDup(err)) return IntegrationNotification.findOne({ key: startKey(attempt._id) });
     console.error('[botghost] falha ao agendar a remoção da Role base (a prova continua):', safeError(err));
@@ -139,6 +130,98 @@ async function cancelPendingStart(attemptId) {
     { key: startKey(attemptId), status: { $in: ['pending', 'dispatched', 'failed'] } },
     { $set: { status: 'cancelled', 'lease.token': null }, ...historyPush('cancelled', 'prova terminou antes da remoção da Role base') },
   );
+}
+
+// ---- Devolução da Role base (estado desejado) ----
+// Fora de uma prova DAFP EFETIVAMENTE em andamento o aluno precisa TER a
+// Role base. "Em andamento" = status in_progress e não excluída.
+function restoreKey(attemptId) {
+  return `dafp_restore:${attemptId}`;
+}
+
+function inProgress(attempt) {
+  return attempt.status === 'in_progress' && !attempt.deletedAt;
+}
+
+// A tentativa teve a Role base retirada, já saiu de "em andamento" e a
+// devolução ainda não foi confirmada pelo BotGhost.
+function needsBaseRestore(attempt) {
+  return Boolean(attempt && attempt.examGroup === 'DAFP' && attempt.dafpBaseRoleRemovedId && attempt.discordUserId
+    && !inProgress(attempt) && !(attempt.dafpBaseRole && attempt.dafpBaseRole.restoreConfirmedAt));
+}
+
+// Outra prova DAFP do mesmo aluno em andamento: a Role base precisa
+// continuar AUSENTE; a devolução fica para quando ela terminar.
+function otherActiveDafpAttempt(attempt) {
+  return ExamAttempt.exists({
+    _id: { $ne: attempt._id },
+    examGroup: 'DAFP',
+    discordUserId: attempt.discordUserId,
+    status: 'in_progress',
+    deletedAt: null,
+    dafpBaseRoleRemovedId: { $ne: null },
+  });
+}
+
+// Ação oposta sobre a Role base do mesmo aluno que está com o BotGhost
+// agora (reservada e não confirmada): a nova espera (409 not_ready).
+function baseRoleInFlight(memberDiscordId, action, exceptId) {
+  return IntegrationNotification.exists({
+    _id: { $ne: exceptId },
+    status: 'claimed',
+    'lease.baseRoleAction': action,
+    'lease.memberDiscordId': memberDiscordId,
+    'lease.until': { $gt: new Date() },
+  });
+}
+
+// Garante UM aviso de devolução na fila (dafp_restore:<tentativa>) para
+// toda tentativa que saiu de "em andamento" sem devolução confirmada:
+// cria, ou recoloca na fila se falhou/foi cancelado. Chamada em todo
+// encerramento (finalizar, tempo, admin, exclusão) e pela reconciliação.
+// Nunca lança. Devolve o aviso só quando criou/recolocou algo.
+async function ensureBaseRoleRestore(attempt) {
+  try {
+    if (!needsBaseRestore(attempt)) return null;
+    // A remoção do início que o BotGhost ainda nem pegou não serve mais (e,
+    // se viesse depois da devolução, deixaria o aluno sem a Role).
+    await cancelPendingStart(attempt._id);
+    const now = new Date();
+    await ExamAttempt.updateOne({ _id: attempt._id, 'dafpBaseRole.releasedAt': null }, { $set: { 'dafpBaseRole.releasedAt': now } });
+    if (await otherActiveDafpAttempt(attempt)) return null;
+    const key = restoreKey(attempt._id);
+    let n = await IntegrationNotification.findOne({ key });
+    let changed = false;
+    if (!n) {
+      try {
+        n = await IntegrationNotification.create({
+          kind: 'dafp_base_restore',
+          key,
+          attemptId: attempt._id,
+          payload: { baseRoleId: attempt.dafpBaseRoleRemovedId, memberDiscordId: attempt.discordUserId },
+          history: [{ event: 'created' }],
+        });
+        changed = true;
+      } catch (err) {
+        if (!isDup(err)) throw err;
+        n = await IntegrationNotification.findOne({ key });
+      }
+    } else if (['failed', 'cancelled', 'delivered'].includes(n.status)) {
+      // Sem confirmação registrada na tentativa: repetir o ADD é seguro
+      // (adicionar quem já tem não muda nada) — melhor redundante do que o
+      // aluno ficar sem a Role.
+      const r = await IntegrationNotification.updateOne(
+        { _id: n._id, status: n.status },
+        { $set: { status: 'pending', nextDispatchAt: now, dispatchAttempts: 0, needsUpdate: false, 'lease.token': null, 'lease.until': null }, ...historyPush('requeued', 'Role base ainda não devolvida') },
+      );
+      changed = r.modifiedCount > 0;
+    }
+    await ExamAttempt.updateOne({ _id: attempt._id, 'dafpBaseRole.restoreRequestedAt': null }, { $set: { 'dafpBaseRole.restoreRequestedAt': now } });
+    return changed ? n : null;
+  } catch (err) {
+    console.error('[botghost] falha ao agendar a devolução da Role base (a prova continua encerrada):', safeError(err));
+    return null;
+  }
 }
 
 async function createAnnouncement({ draftId, batch, index, userIds, promotionIds, nicknames, channelId, roleId }) {
@@ -267,11 +350,37 @@ async function buildClaimContent(n, config) {
   if (n.kind === 'dafp_started') {
     const attempt = await ExamAttempt.findById(n.attemptId).select('-snapshot -auditTrail -focusEvents -streamEvents').populate('examId', 'name slug');
     if (!attempt) throw new ClaimProblem(410, 'nothing_to_do', 'A tentativa não existe mais.', 'cancelled');
-    if (attempt.deletedAt || attempt.status !== 'in_progress') {
+    if (!inProgress(attempt)) {
       throw new ClaimProblem(410, 'nothing_to_do', 'A prova já terminou: a Role base não precisa mais sair.', 'cancelled');
+    }
+    if (await baseRoleInFlight(attempt.discordUserId, 'ADD', n._id)) {
+      throw new ClaimProblem(409, 'not_ready', 'Aguardando o BotGhost concluir a devolução da Role base de outra prova deste aluno.');
     }
     const fields = require('./dafpService').resultFields(attempt, { config });
     return { roleOnly: true, actionType: 'DAFP_STARTED', action: 'none', channelId: '', slots: startRoleActions(attempt), extra: fields, revision: null };
+  }
+  if (n.kind === 'dafp_base_restore') {
+    // Devolução da Role base: sem mensagem, mesmo formato do fim
+    // (DAFP_FINISHED, publishMessage "false", só a posição 1 = ADD).
+    const attempt = await ExamAttempt.findById(n.attemptId).select('-snapshot -auditTrail -focusEvents -streamEvents').populate('examId', 'name slug');
+    if (!attempt) throw new ClaimProblem(410, 'nothing_to_do', 'A tentativa não existe mais.', 'cancelled');
+    if (inProgress(attempt)) throw new ClaimProblem(410, 'nothing_to_do', 'A prova ainda está em andamento.', 'cancelled');
+    if (attempt.dafpBaseRole && attempt.dafpBaseRole.restoreConfirmedAt) {
+      throw new ClaimProblem(410, 'nothing_to_do', 'A Role base desta prova já foi devolvida.', 'cancelled');
+    }
+    await cancelPendingStart(attempt._id);
+    if (await otherActiveDafpAttempt(attempt)) {
+      throw new ClaimProblem(410, 'nothing_to_do', 'O aluno está fazendo outra prova DAFP agora: a Role base volta quando ela terminar.', 'cancelled');
+    }
+    if (await baseRoleInFlight(attempt.discordUserId, 'REMOVE', n._id)) {
+      throw new ClaimProblem(409, 'not_ready', 'Aguardando o BotGhost concluir a remoção da Role base do início da prova.');
+    }
+    const fields = require('./dafpService').resultFields(attempt, { config });
+    // O mesmo membro/Role gravados quando a devolução foi pedida.
+    const p = n.payload || {};
+    const member = p.memberDiscordId || attempt.discordUserId;
+    const slots = [{ action: 'ADD', roleId: p.baseRoleId || attempt.dafpBaseRoleRemovedId, memberDiscordId: member }, null, null];
+    return { roleOnly: true, actionType: 'DAFP_FINISHED', action: 'none', channelId: '', slots, revision: null, extra: { ...fields, memberDiscordId: member } };
   }
   if (n.kind === 'result') {
     const attempt = await ExamAttempt.findById(n.attemptId).select('-snapshot -auditTrail -focusEvents -streamEvents').populate('examId', 'name slug');
@@ -315,12 +424,7 @@ async function buildClaimContent(n, config) {
 // cargo). Ordem garantida: se a remoção do início ainda está com o BotGhost,
 // espera; se nem começou, é cancelada (a devolução já cobre).
 async function dafpResultContent(n, attempt, config, { hasMessage, revision }) {
-  const start = await IntegrationNotification.findOne({ key: startKey(attempt._id) }).select('status').lean();
-  if (start && start.status === 'claimed') {
-    throw new ClaimProblem(409, 'not_ready', 'Aguardando o BotGhost concluir a remoção da Role base do início da prova.');
-  }
-  if (start && ['pending', 'dispatched', 'failed'].includes(start.status)) await cancelPendingStart(attempt._id);
-
+  await cancelPendingStart(attempt._id);
   const firstDelivery = !n.message.deliveredAt;
   const fields = require('./dafpService').resultFields(attempt, { config, published: hasMessage });
   const o = attempt.outcome || {};
@@ -333,11 +437,8 @@ async function dafpResultContent(n, attempt, config, { hasMessage, revision }) {
       const { ctx, pingIds } = resultContext(attempt);
       return { templateKey: 'result_removed', action: 'edit', channelId: n.message.channelId, messageId: n.message.messageId, ctx, pingIds, revision, actionType: 'DAFP_FINISHED', slots: EMPTY_SLOTS, extra: { ...fields, ...legacy(EMPTY_SLOTS) } };
     }
-    if (firstDelivery && attempt.dafpBaseRoleRemovedId) {
-      // Excluído antes de publicar: nada no canal, só a Role base volta.
-      const slots = finishRoleActions(attempt);
-      return { roleOnly: true, actionType: 'DAFP_FINISHED', action: 'none', channelId: '', slots, revision, extra: { ...fields, ...legacy(slots) } };
-    }
+    // Excluído antes de publicar: nada no canal. A Role base volta pelo
+    // aviso próprio de devolução (dafp_base_restore).
     throw new ClaimProblem(410, 'nothing_to_do', 'Resultado excluído antes de ser publicado — nada a enviar.', 'cancelled');
   }
   if (!isFinished(attempt)) throw new ClaimProblem(409, 'not_ready', 'A prova ainda não foi finalizada.');
@@ -345,7 +446,13 @@ async function dafpResultContent(n, attempt, config, { hasMessage, revision }) {
   const channelId = hasMessage ? n.message.channelId : (o.resultChannelId || config.dafp.resultChannelId);
   if (!channelId) throw new ClaimProblem(409, 'config_missing', 'Canal padrão de resultados DAFP não configurado na aba Integração BotGhost (nem canal próprio na prova).');
   const action = hasMessage ? 'edit' : 'send';
-  const slots = firstDelivery ? finishRoleActions(attempt) : EMPTY_SLOTS;
+  const slots = firstDelivery ? finishRoleActions(attempt) : [...EMPTY_SLOTS];
+  // Outra prova DAFP do aluno em andamento: a Role base fica AUSENTE.
+  if (slots[0] && await otherActiveDafpAttempt(attempt)) slots[0] = null;
+  // A devolução nunca passa na frente de uma remoção que está com o BotGhost.
+  if (slots[0] && await baseRoleInFlight(attempt.discordUserId, 'REMOVE', n._id)) {
+    throw new ClaimProblem(409, 'not_ready', 'Aguardando o BotGhost concluir a remoção da Role base do início da prova.');
+  }
   return { templateKey: 'dafp_result', action, channelId, messageId: hasMessage ? n.message.messageId : undefined, ctx, pingIds, revision, actionType: 'DAFP_FINISHED', slots, extra: { ...fields, ...legacy(slots) } };
 }
 
@@ -421,8 +528,15 @@ async function claim(notificationId) {
       rendered = renderTemplate(built.templateKey, spec, built.ctx, { mode: built.test ? 'test' : built.action, pingIds: built.pingIds });
       if (!rendered.ok) throw new ClaimProblem(422, 'render_failed', `O modelo "${built.templateKey}" não coube nos limites do Discord: ${rendered.errors.map((e) => e.message).join(' ')}`, 'failed');
     }
+    const base = (built.slots || [])[0] || null;
     await IntegrationNotification.updateOne({ _id: n._id }, {
-      $set: { 'lease.action': built.action, 'lease.renderedRevision': built.revision, 'lease.channelId': built.channelId },
+      $set: {
+        'lease.action': built.action,
+        'lease.renderedRevision': built.revision,
+        'lease.channelId': built.channelId,
+        'lease.baseRoleAction': base ? base.action : null,
+        'lease.memberDiscordId': base ? base.memberDiscordId : null,
+      },
     });
     return { status: 200, code: 'claimed', message: 'Notificação reservada.', data: claimResponse(n, built, rendered, leaseToken, leaseUntil) };
   } catch (err) {
@@ -453,6 +567,7 @@ async function ack(notificationId, { leaseToken, outcome, messageId, channelId, 
       return { status: 200, code: 'already_acked', message: 'Confirmação já registrada.', data: { notificationId: String(n._id), messageId: msgId } };
     }
     if (!['claimed', 'ambiguous'].includes(n.status) || !token || n.lease.token !== token) {
+      if (token) await lateRemoveGuard(n);
       return { status: 409, code: 'lease_mismatch', message: 'Esta reserva não é mais válida (venceu ou foi assumida por outra execução).' };
     }
     const ch = String(channelId || n.lease.channelId || n.message.channelId || '');
@@ -498,7 +613,41 @@ async function ack(notificationId, { leaseToken, outcome, messageId, channelId, 
   return { status: 400, code: 'invalid_outcome', message: 'outcome deve ser "delivered" ou "failed".' };
 }
 
-async function afterDelivered(n) {
+// O BotGhost confirmou uma remoção da Role base com uma reserva que já não
+// valia (venceu e a prova terminou nesse meio-tempo): a remoção pode ter
+// acontecido DEPOIS da devolução. Se a prova não está mais em andamento,
+// a devolução é pedida de novo (ADD repetido é seguro).
+async function lateRemoveGuard(n) {
+  if (n.kind !== 'dafp_started' || !n.attemptId) return;
+  const attempt = await ExamAttempt.findById(n.attemptId).select('-snapshot -auditTrail -focusEvents -streamEvents');
+  if (!attempt || inProgress(attempt)) return;
+  await ExamAttempt.updateOne({ _id: attempt._id }, { $set: { 'dafpBaseRole.restoreConfirmedAt': null, 'dafpBaseRole.restoreConfirmedVia': null } });
+  attempt.dafpBaseRole.restoreConfirmedAt = null;
+  await IntegrationNotification.updateOne({ _id: n._id }, historyPush('late_remove_ack', 'remoção confirmada fora da reserva: devolução pedida de novo'));
+  await ensureBaseRoleRestore(attempt);
+}
+
+async function afterDelivered(n, { byBot = true } = {}) {
+  // Estado da Role base na tentativa: remoção/devolução confirmadas. Só o
+  // ack do BotGhost confirma cargo — o admin marcando uma entrega ambígua
+  // como publicada não prova que o cargo foi mexido (a devolução própria
+  // continua valendo).
+  const baseAction = byBot && n.lease && n.lease.baseRoleAction;
+  if (baseAction && n.attemptId) {
+    const field = baseAction === 'ADD' ? 'restoreConfirmedAt' : 'removeConfirmedAt';
+    await ExamAttempt.updateOne(
+      { _id: n.attemptId, [`dafpBaseRole.${field}`]: null },
+      { $set: { [`dafpBaseRole.${field}`]: new Date(), ...(baseAction === 'ADD' ? { 'dafpBaseRole.restoreConfirmedVia': n.kind } : {}) } },
+    );
+    // Devolvida junto com o resultado: o aviso próprio que ainda nem saiu
+    // não é mais necessário.
+    if (baseAction === 'ADD' && n.kind !== 'dafp_base_restore') {
+      await IntegrationNotification.updateOne(
+        { key: restoreKey(n.attemptId), status: { $in: ['pending', 'dispatched', 'failed'] } },
+        { $set: { status: 'cancelled' }, ...historyPush('cancelled', 'Role base já devolvida pelo aviso de resultado') },
+      );
+    }
+  }
   if (n.kind === 'result') {
     const attempt = await ExamAttempt.findById(n.attemptId).select('revision');
     await ExamAttempt.updateOne({ _id: n.attemptId }, {
@@ -564,7 +713,7 @@ async function adminResolveAmbiguous(id, { mode, messageId, channelId }, actor) 
       $set: { status: 'delivered', 'message.messageId': String(messageId), 'message.channelId': isSnowflake(String(channelId || '')) ? String(channelId) : n.lease.channelId, 'message.deliveredAt': new Date(), deliveredRevision: n.lease.renderedRevision, lastError: null },
       ...historyPush('admin_marked_delivered', actor),
     }, { new: true });
-    await afterDelivered(done);
+    await afterDelivered(done, { byBot: false });
   } else if (mode === 'resend') {
     await IntegrationNotification.updateOne({ _id: id, status: 'ambiguous' }, { $set: { status: 'pending', dispatchAttempts: 0, nextDispatchAt: new Date() }, ...historyPush('admin_resend', actor) });
   } else {
@@ -576,6 +725,7 @@ async function adminResolveAmbiguous(id, { mode, messageId, channelId }, actor) 
 module.exports = {
   announcementContext,
   syncResultNotification, createAnnouncement, createTemplateTest, createPanelUpdate, createDafpStartNotification, startKey,
+  ensureBaseRoleRestore, restoreKey,
   claim, ack, expireLeases, adminRetry, adminResolveAmbiguous, backoffMs, safeError,
   LEASE_MS, DISPATCH_CLAIM_TIMEOUT_MS,
 };

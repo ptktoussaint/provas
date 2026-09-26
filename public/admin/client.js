@@ -524,6 +524,10 @@
     const data = await api('/exams');
     if (!data.success) return;
     examsCache = data.exams;
+    // Sem prova fixa "tcel", o /provas-tcel cai na regra antiga (só entre
+    // provas TCEL) — o admin precisa marcar qual é a prova do comando.
+    document.getElementById('exams-tcel-warning').textContent = data.tcelFixed ? ''
+      : '⚠ Nenhuma prova está marcada como a prova fixa do /provas-tcel. Abra "Integração / Resultado" na prova TCEL e use o identificador "tcel".';
     renderExams();
     renderRoomExamSelect();
     renderResultsExamFilter();
@@ -536,11 +540,109 @@
       questionCount: Number(document.getElementById('exam-question-count').value),
       pointsPerQuestion: Number(document.getElementById('exam-points').value),
       durationMinutes: Number(document.getElementById('exam-duration').value),
+      group: document.getElementById('exam-group').value,
     };
+    if (!payload.group) { alert('Escolha o grupo da prova (TCEL ou DAFP).'); return; }
     const data = await api('/exams', { method: 'POST', body: JSON.stringify(payload) });
     if (data.success) { e.target.reset(); document.getElementById('exam-question-count').value = 50; document.getElementById('exam-points').value = 2; document.getElementById('exam-duration').value = 120; loadExams(); }
     else alert(data.message || 'Erro ao criar prova.');
   });
+
+  function examMaxScore(exam) {
+    return Math.round((Number(exam.questionCount) || 0) * (Number(exam.pointsPerQuestion) || 0) * 100) / 100;
+  }
+
+  // Questões cadastradas no banco desta prova (todas / ativas). Menos
+  // ativas que o sorteio → a prova sai com menos questões que o configurado.
+  function bankSummary(exam) {
+    const total = exam.bankTotal || 0;
+    const active = exam.bankActive || 0;
+    const warn = active < exam.questionCount
+      ? ` · <span style="color:var(--warning)">⚠ a prova sorteia ${exam.questionCount}, mas só há ${active} ativa(s)</span>`
+      : '';
+    return `Banco de questões: <strong>${total}</strong> cadastrada(s), <strong>${active}</strong> ativa(s)${warn}`;
+  }
+
+  // Tela de boas-vindas da prova: vídeo sim/não e textos do aluno e do fiscal.
+  function examWelcomeForm(exam) {
+    const id = exam._id;
+    const on = exam.showIntroVideo !== false;
+    return `
+      <form class="exam-settings hidden" data-welcome-form="${id}">
+        <h4 class="discord-subtitle">Tela de boas-vindas</h4>
+        <div class="discord-form-grid">
+          <div class="field-group"><label>Mostrar vídeo ao abrir a prova?</label>
+            <select name="showIntroVideo">
+              <option value="true" ${on ? 'selected' : ''}>Sim (vídeo desta prova ou o padrão da plataforma)</option>
+              <option value="false" ${on ? '' : 'selected'}>Não (vai direto para o compartilhamento de tela)</option>
+            </select></div>
+        </div>
+        <div class="discord-form-grid">
+          <div class="field-group"><label>Texto para o ALUNO</label>
+            <textarea name="welcomeTextStudent" rows="6" maxlength="3000" placeholder="Vazio = texto padrão (Parabéns... você foi selecionado(a)...)">${escapeHtml(exam.welcomeTextStudent || '')}</textarea></div>
+          <div class="field-group"><label>Texto para o FISCAL</label>
+            <textarea name="welcomeTextProctor" rows="6" maxlength="3000" placeholder="Vazio = texto padrão (Olá... você foi convidado(a) para atuar como fiscal...)">${escapeHtml(exam.welcomeTextProctor || '')}</textarea></div>
+        </div>
+        <p class="hint" style="margin-top:0">O título ("Parabéns, NOME!" / "Olá, NOME!") e o botão continuam iguais; o texto abaixo do título é substituído. Deixe uma linha em branco para separar parágrafos. Variáveis: <code>{aluno}</code>, <code>{prova}</code>, <code>{duracao}</code> e, no texto do fiscal, <code>{fiscal}</code>.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button type="submit" class="small-btn">Salvar</button>
+          <button type="button" class="small-btn secondary-btn" data-welcome-cancel="${id}">Fechar</button>
+        </div>
+        <p class="error-msg" data-welcome-msg></p>
+      </form>`;
+  }
+
+  function examIntegrationSummary(exam) {
+    const group = exam.group || 'TCEL';
+    const parts = [`<span class="badge badge-neutral">${escapeHtml(group)}</span>`];
+    if (exam.slug) parts.push(`identificador <code>${escapeHtml(exam.slug)}</code>`);
+    if (exam.slug === 'tcel') parts.push('⭐ prova fixa do /provas-tcel');
+    parts.push(exam.autoApproval && exam.passingScore != null
+      ? `aprovação automática: mínimo ${escapeHtml(String(exam.passingScore))} de ${examMaxScore(exam)}`
+      : 'sem aprovação automática');
+    return parts.join(' · ');
+  }
+
+  // Seção "Integração / Resultado" (escondida até clicar no botão da prova).
+  function examSettingsForm(exam) {
+    const id = exam._id;
+    const isTcel = exam.slug === 'tcel';
+    const auto = Boolean(exam.autoApproval);
+    return `
+      <form class="exam-settings hidden" data-settings-form="${id}">
+        <h4 class="discord-subtitle">Integração / Resultado</h4>
+        <div class="discord-form-grid">
+          <div class="field-group"><label>Grupo</label>
+            <select name="group" ${isTcel ? 'disabled title="A prova fixa do /provas-tcel precisa continuar TCEL"' : ''}>
+              <option value="TCEL" ${(exam.group || 'TCEL') === 'TCEL' ? 'selected' : ''}>TCEL</option>
+              <option value="DAFP" ${exam.group === 'DAFP' ? 'selected' : ''}>DAFP</option>
+            </select></div>
+          <div class="field-group"><label>Identificador (slug) — usado pelo BotGhost</label>
+            <input name="slug" value="${escapeHtml(exam.slug || '')}" ${isTcel ? 'disabled title="Identificador fixo do /provas-tcel"' : ''} placeholder="ex.: segundo-tenente" /></div>
+          <div class="field-group"><label>Aprovação automática</label>
+            <select name="autoApproval">
+              <option value="false" ${auto ? '' : 'selected'}>Não</option>
+              <option value="true" ${auto ? 'selected' : ''}>Sim</option>
+            </select></div>
+          <div class="field-group"><label>ID do canal de resultado (opcional; vazio = canal padrão DAFP)</label>
+            <input name="resultChannelId" value="${escapeHtml(exam.resultChannelId || '')}" placeholder="ID do canal" /></div>
+        </div>
+        <div class="discord-form-grid ${auto ? '' : 'hidden'}" data-auto-fields>
+          <div class="field-group"><label>Nota mínima para aprovação (máx. ${examMaxScore(exam)})</label>
+            <input name="passingScore" type="number" min="0" max="${examMaxScore(exam)}" step="0.01" value="${exam.passingScore != null ? escapeHtml(String(exam.passingScore)) : ''}" /></div>
+          <div class="field-group"><label>ID do cargo de APROVADO</label>
+            <input name="approvedRoleId" value="${escapeHtml(exam.approvedRoleId || '')}" placeholder="ID do cargo" /></div>
+          <div class="field-group"><label>ID do cargo de REPROVADO</label>
+            <input name="failedRoleId" value="${escapeHtml(exam.failedRoleId || '')}" placeholder="ID do cargo" /></div>
+        </div>
+        <p class="hint" style="margin-top:6px">Nota = acertos × pontos por questão (máximo ${examMaxScore(exam)}). Aprovado quando a nota for maior ou igual à nota mínima. O site só informa o cargo ao BotGhost; quem aplica o cargo é o BotGhost.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button type="submit" class="small-btn">Salvar</button>
+          <button type="button" class="small-btn secondary-btn" data-settings-cancel="${id}">Fechar</button>
+        </div>
+        <p class="error-msg" data-settings-msg></p>
+      </form>`;
+  }
 
   function renderExams() {
     const el = document.getElementById('exams-list');
@@ -550,14 +652,22 @@
         <div>
           <strong>${escapeHtml(exam.name)}</strong>
           <div class="room-item-meta">${exam.questionCount} questões · ${exam.pointsPerQuestion} pts/questão · ${exam.durationMinutes} min</div>
+          <div class="room-item-meta">${bankSummary(exam)}</div>
+          <div class="room-item-meta">${examIntegrationSummary(exam)}</div>
         </div>
         <div class="room-item-actions">
           <span class="badge ${exam.active ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${exam.active ? 'Ativa' : 'Inativa'}</span>
           <button class="small-btn secondary-btn" data-toggle-exam="${exam._id}" data-active="${exam.active}">${exam.active ? 'Desativar' : 'Ativar'}</button>
+          <button class="small-btn secondary-btn" data-exam-welcome="${exam._id}">🎬 Boas-vindas</button>
+          <button class="small-btn secondary-btn" data-exam-settings="${exam._id}">⚙ Integração / Resultado</button>
           <button class="small-btn" data-view-questions="${exam._id}" data-name="${escapeHtml(exam.name)}">Questões</button>
         </div>
+        ${examWelcomeForm(exam)}
+        ${examSettingsForm(exam)}
         <div class="room-item-actions">
-          <span class="badge ${exam.introVideoUrl ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${exam.introVideoUrl ? 'Vídeo de boas-vindas enviado' : 'Sem vídeo próprio (usa o padrão)'}</span>
+          ${exam.showIntroVideo === false
+            ? '<span class="badge badge-warn"><span class="badge-dot"></span>Vídeo desligado nesta prova</span>'
+            : `<span class="badge ${exam.introVideoUrl ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${exam.introVideoUrl ? 'Vídeo de boas-vindas enviado' : 'Sem vídeo próprio (usa o padrão)'}</span>`}
           <input type="file" accept="video/mp4,video/webm,video/ogg" data-exam-video-file="${exam._id}" style="max-width:220px" />
           <button class="small-btn secondary-btn" data-exam-video-upload="${exam._id}">Enviar vídeo</button>
           <button class="small-btn secondary-btn" data-exam-video-url="${exam._id}">Colar link</button>
@@ -566,6 +676,53 @@
       </div>
     `).join('');
 
+    el.querySelectorAll('[data-exam-welcome]').forEach((btn) => btn.addEventListener('click', () => {
+      el.querySelector(`[data-welcome-form="${btn.dataset.examWelcome}"]`).classList.toggle('hidden');
+    }));
+    el.querySelectorAll('[data-welcome-cancel]').forEach((btn) => btn.addEventListener('click', () => {
+      el.querySelector(`[data-welcome-form="${btn.dataset.welcomeCancel}"]`).classList.add('hidden');
+    }));
+    el.querySelectorAll('[data-welcome-form]').forEach((form) => form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const msg = form.querySelector('[data-welcome-msg]');
+      msg.textContent = 'Salvando...';
+      const body = {
+        showIntroVideo: form.querySelector('[name="showIntroVideo"]').value === 'true',
+        welcomeTextStudent: form.querySelector('[name="welcomeTextStudent"]').value,
+        welcomeTextProctor: form.querySelector('[name="welcomeTextProctor"]').value,
+      };
+      const data = await api(`/exams/${form.dataset.welcomeForm}`, { method: 'PUT', body: JSON.stringify(body) });
+      if (!data.success) { msg.textContent = data.message || 'Erro ao salvar.'; return; }
+      loadExams();
+    }));
+    el.querySelectorAll('[data-exam-settings]').forEach((btn) => btn.addEventListener('click', () => {
+      el.querySelector(`[data-settings-form="${btn.dataset.examSettings}"]`).classList.toggle('hidden');
+    }));
+    el.querySelectorAll('[data-settings-cancel]').forEach((btn) => btn.addEventListener('click', () => {
+      el.querySelector(`[data-settings-form="${btn.dataset.settingsCancel}"]`).classList.add('hidden');
+    }));
+    el.querySelectorAll('[data-settings-form]').forEach((form) => {
+      const autoSel = form.querySelector('[name="autoApproval"]');
+      autoSel.addEventListener('change', () => form.querySelector('[data-auto-fields]').classList.toggle('hidden', autoSel.value !== 'true'));
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const msg = form.querySelector('[data-settings-msg]');
+        const val = (n) => form.querySelector(`[name="${n}"]`);
+        const body = { autoApproval: autoSel.value === 'true', resultChannelId: val('resultChannelId').value.trim() };
+        if (!val('group').disabled) body.group = val('group').value;
+        if (!val('slug').disabled) body.slug = val('slug').value.trim();
+        if (body.autoApproval) {
+          body.passingScore = val('passingScore').value.trim();
+          body.approvedRoleId = val('approvedRoleId').value.trim();
+          body.failedRoleId = val('failedRoleId').value.trim();
+          if (!body.passingScore || !body.approvedRoleId || !body.failedRoleId) { msg.textContent = 'Com aprovação automática, preencha a nota mínima e os dois cargos.'; return; }
+        }
+        msg.textContent = 'Salvando...';
+        const data = await api(`/exams/${form.dataset.settingsForm}`, { method: 'PUT', body: JSON.stringify(body) });
+        if (!data.success) { msg.textContent = data.message || 'Erro ao salvar.'; return; }
+        loadExams();
+      });
+    });
     el.querySelectorAll('[data-toggle-exam]').forEach((btn) => btn.addEventListener('click', async () => {
       await api(`/exams/${btn.dataset.toggleExam}`, { method: 'PUT', body: JSON.stringify({ active: btn.dataset.active !== 'true' }) });
       loadExams();
@@ -608,8 +765,11 @@
     if (!selectedExamId) return;
     const data = await api(`/exams/${selectedExamId}/questions`);
     if (!data.success) return;
+    // A contagem do banco na lista de provas muda ao criar/editar/excluir.
+    const changed = questionsCache && questionsCache !== data.questions && questionsCache.length !== data.questions.length;
     questionsCache = data.questions;
     renderQuestions();
+    if (changed) loadExams();
   }
 
   function questionFormHtml(existing) {
@@ -955,7 +1115,11 @@
       return `<span class="badge badge-danger"><span class="badge-dot"></span>Excluída</span>${a.deleteReason ? `<span class="cell-sub">${escapeHtml(a.deleteReason)}</span>` : ''}`;
     }
     const [label, cls] = STATUS_LABELS[a.status] || [a.status, 'badge-neutral'];
-    return `<div class="status-stack"><span class="badge ${cls}"><span class="badge-dot"></span>${escapeHtml(label)}</span>${a.archivedAt ? '<span class="badge badge-neutral"><span class="badge-dot"></span>Arquivada</span>' : ''}</div>`;
+    // Aprovação automática (decidida na finalização e gravada no resultado).
+    const o = a.outcome || {};
+    const verdict = o.resultStatus === 'APROVADO' ? '<span class="badge badge-ok"><span class="badge-dot"></span>Aprovado</span>'
+      : o.resultStatus === 'REPROVADO' ? '<span class="badge badge-danger"><span class="badge-dot"></span>Reprovado</span>' : '';
+    return `<div class="status-stack"><span class="badge ${cls}"><span class="badge-dot"></span>${escapeHtml(label)}</span>${verdict}${a.archivedAt ? '<span class="badge badge-neutral"><span class="badge-dot"></span>Arquivada</span>' : ''}</div>`;
   }
 
   function dateCell(d) {
@@ -1032,7 +1196,7 @@
       return `
       <tr class="${deleted ? 'result-deleted' : archived ? 'result-archived' : ''}">
         <td class="col-student">${studentCell(a)}</td>
-        <td><span class="cell-main">${escapeHtml(a.examId ? a.examId.name : '—')}</span><span class="cell-sub">${escapeHtml((a.roomId ? a.roomId.roomLabel : a.roomLabel) || '')}</span></td>
+        <td><span class="cell-main">${escapeHtml(a.examId ? a.examId.name : '—')}</span><span class="cell-sub">${a.examGroup === 'DAFP' ? 'DAFP · ' : ''}${escapeHtml((a.roomId ? a.roomId.roomLabel : a.roomLabel) || '')}</span></td>
         <td>${proctorCell(a)}</td>
         <td>${scoreCell(a)}</td>
         <td class="nowrap">${done ? `<span class="count-ok" title="Acertos">✓ ${a.correctCount}</span><span class="count-bad" title="Erros">✗ ${a.wrongCount}</span>` : '<span class="cell-muted">—</span>'}</td>

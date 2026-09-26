@@ -55,7 +55,9 @@ router.post('/identify', identifyLimiter, async (req, res) => {
     exam: {
       name: exam.name,
       imageUrl: exam.imageUrl,
-      introVideoUrl: exam.introVideoUrl || settings.introVideoUrl || null,
+      // Vídeo desligado nesta prova: vai direto para o compartilhamento.
+      introVideoUrl: exam.showIntroVideo === false ? null : (exam.introVideoUrl || settings.introVideoUrl || null),
+      welcomeText: exam.welcomeTextStudent || null,
       durationMinutes: exam.durationMinutes,
       questionCount: exam.questionCount,
     },

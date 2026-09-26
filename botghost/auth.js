@@ -73,21 +73,25 @@ async function resolveActor(req, action, getEnv) {
   }
   if (!isSnowflake(actorDiscordId)) throw new ApiError(400, 'invalid_field', 'actorDiscordId inválido (use {user_id}).', { field: 'actorDiscordId' });
   const config = await configStore.getConfig();
-  if (config.channels.panel) {
+  // DAFP tem canal próprio (opcional) — o canal do painel TCEL não vale
+  // para o /provas-dafp, e vice-versa.
+  const isDafp = action === 'dafp';
+  const requiredChannel = isDafp ? config.dafp.commandChannelId : config.channels.panel;
+  if (requiredChannel) {
     if (!isSnowflake(channelId)) throw new ApiError(400, 'invalid_field', 'channelId obrigatório (use {channel_id}).', { field: 'channelId' });
-    if (channelId !== config.channels.panel) {
+    if (channelId !== requiredChannel) {
       await logThrottled('botghost_channel_denied', `c:${actorDiscordId}:${channelId}`, { actorDiscordId, channelId, route: req.path });
-      throw new ApiError(403, 'wrong_channel', 'Use o painel da Prova TCEL no canal autorizado.');
+      throw new ApiError(403, 'wrong_channel', isDafp ? 'Use o /provas-dafp no canal autorizado.' : 'Use o painel da Prova TCEL no canal autorizado.');
     }
   }
-  // "any" = qualquer operador de qualquer ação (ex.: publicar o painel).
+  // "any" = qualquer operador de qualquer ação TCEL (ex.: publicar o painel).
   const allowed = action === 'any'
     ? Array.from(new Set([...config.operatorIds.generate, ...config.operatorIds.results, ...config.operatorIds.promote]))
     : config.operatorIds[action] || [];
   if (!allowed.length) throw new ApiError(403, 'operators_not_configured', 'Nenhum operador autorizado para esta ação foi configurado no site.');
   if (!allowed.includes(actorDiscordId)) {
     await logThrottled('botghost_operator_denied', `o:${actorDiscordId}:${action}`, { actorDiscordId, action, route: req.path });
-    throw new ApiError(403, 'operator_not_allowed', 'Você não está autorizado a usar esta função da Prova TCEL.');
+    throw new ApiError(403, 'operator_not_allowed', isDafp ? 'Você não está autorizado a gerar provas DAFP.' : 'Você não está autorizado a usar esta função da Prova TCEL.');
   }
   return {
     guildId,

@@ -188,9 +188,18 @@
               <label>Duração (minutos)</label>
               <input id="exam-duration" type="number" value="120" min="1" />
             </div>
+            <div class="field-group" style="max-width:150px">
+              <label>Grupo</label>
+              <select id="exam-group" required>
+                <option value="">Escolha…</option>
+                <option value="TCEL">TCEL</option>
+                <option value="DAFP">DAFP</option>
+              </select>
+            </div>
             <button type="submit" class="small-btn" style="align-self:flex-end">Criar prova</button>
           </form>
           <p class="hint" style="margin-top:0">O vídeo de boas-vindas específico desta prova é enviado depois de criada, na própria linha da lista abaixo (sem vídeo próprio, usa o vídeo padrão da plataforma configurado acima).</p>
+          <p class="error-msg" id="exams-tcel-warning" style="margin-top:0"></p>
           <div id="exams-list" class="list-plain"></div>
         </div>
 
@@ -356,6 +365,12 @@
               <div class="field-group"><label>Canal de anúncio de promoções</label><input id="ig-announce-channel" /></div>
               <div class="field-group"><label>Cargo mencionado no anúncio</label><input id="ig-announce-role" /></div>
               <div class="field-group"><label>Modelo do apelido (máx. 32 caracteres no total)</label><input id="ig-nickname-template" /></div>
+            </div>
+            <h4 class="discord-subtitle">Provas DAFP (/provas-dafp)</h4>
+            <div class="discord-form-grid">
+              <div class="field-group"><label>Professores que podem gerar provas DAFP</label><input id="ig-ops-dafp" placeholder="IDs de usuários" /></div>
+              <div class="field-group"><label>Canal padrão de resultados DAFP (cada prova pode ter o seu)</label><input id="ig-dafp-result-channel" placeholder="ID do canal" /></div>
+              <div class="field-group"><label>Canal do /provas-dafp (opcional: se preenchido, só aceita pedidos desse canal)</label><input id="ig-dafp-command-channel" placeholder="ID do canal" /></div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button type="submit" class="small-btn">Salvar configuração</button>

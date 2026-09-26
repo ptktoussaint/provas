@@ -44,6 +44,9 @@ const roomSchema = new mongoose.Schema({
   // Foto do aluno enviada pelo BotGhost na criação (URL do CDN do Discord,
   // validada). Vazio quando não enviada — nunca inventada pelo site.
   studentAvatarUrl: { type: String, default: null },
+  // Fluxo que criou a sala (TCEL ou DAFP), copiado do grupo da prova.
+  // Salas antigas: null (= TCEL).
+  examGroup: { type: String, default: null },
   // Pedido de geração que originou a sala — índice único garante que um
   // clique repetido/reenvio da interação nunca cria duas salas.
   discordRequestId: { type: String, default: undefined },

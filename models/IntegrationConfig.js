@@ -13,6 +13,14 @@ const integrationConfigSchema = new mongoose.Schema({
     generate: { type: [String], default: [] },
     results: { type: [String], default: [] },
     promote: { type: [String], default: [] },
+    // Fluxo DAFP (/provas-dafp): lista própria, separada da TCEL.
+    dafp: { type: [String], default: [] },
+  },
+  // Fluxo DAFP. Canal padrão dos resultados (cada prova pode sobrescrever)
+  // e, opcionalmente, o único canal de onde o /provas-dafp é aceito.
+  dafp: {
+    resultChannelId: { type: String, default: null },
+    commandChannelId: { type: String, default: null },
   },
   defaultExamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', default: null },
   channels: {

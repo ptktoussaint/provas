@@ -33,6 +33,19 @@
   let timerInterval = null;
   let stopWelcomeSparks = null;
 
+  // Texto puro do admin → parágrafos (linha em branco separa), com as
+  // variáveis {aluno}, {fiscal}, {prova}, {duracao}. Sempre escapado.
+  function escapeWelcome(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function renderWelcomeText(el, text, vars) {
+    el.innerHTML = String(text).split(/\n\s*\n/).map((p) => {
+      const html = escapeWelcome(p.trim()).replace(/\{(aluno|prova|duracao|fiscal)\}/g, (m, k) => (vars[k] != null ? `<strong>${escapeWelcome(vars[k])}</strong>` : m));
+      return `<p class="welcome-text">${html.replace(/\n/g, '<br>')}</p>`;
+    }).filter((p) => p !== '<p class="welcome-text"></p>').join('');
+  }
+
   function formatDuration(minutes) {
     if (!minutes) return null;
     const h = Math.floor(minutes / 60);
@@ -91,6 +104,17 @@
         document.getElementById('welcome-duration').textContent = durationText;
       } else if (durationItem) {
         durationItem.classList.add('hidden');
+      }
+
+      // Texto de boas-vindas próprio desta prova (painel admin); sem ele,
+      // fica o texto padrão da página (com a lista de orientações).
+      if (data.exam && data.exam.welcomeText) {
+        renderWelcomeText(document.getElementById('welcome-body'), data.exam.welcomeText, {
+          aluno: data.room.studentName || '',
+          fiscal: data.proctorName || 'Fiscal',
+          prova: data.exam.name || '',
+          duracao: durationText || '',
+        });
       }
 
       showScreen('welcome-screen');

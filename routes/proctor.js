@@ -41,7 +41,7 @@ router.post('/identify', identifyLimiter, async (req, res) => {
     success: true,
     room: { roomLabel: room.roomLabel, studentName: room.studentName, roomId: room._id.toString() },
     proctorName: tokenEntry.label || null,
-    exam: exam ? { name: exam.name, durationMinutes: exam.durationMinutes, questionCount: exam.questionCount } : null,
+    exam: exam ? { name: exam.name, durationMinutes: exam.durationMinutes, questionCount: exam.questionCount, welcomeText: exam.welcomeTextProctor || null } : null,
   });
 });
 

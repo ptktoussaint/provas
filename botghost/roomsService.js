@@ -8,6 +8,7 @@ const { logSecurityEvent } = require('../lib/securityLog');
 const { ApiError, boolText } = require('./http');
 const { baseContext, renderForApi } = require('./messages');
 const { userText, mention, truncate, displayName } = require('./format');
+const { TCEL_SLUG, findExamByRef, maxPossibleScore } = require('../lib/examGroups');
 
 // Salas criadas a pedido do BotGhost, pelos MESMOS serviços do painel admin
 // (lib/rooms.js). O ID do aluno é o destinatário cadastrado pelo operador —
@@ -16,11 +17,52 @@ const { userText, mention, truncate, displayName } = require('./format');
 const OPEN_ROOM_STATUSES = ['pending', 'active'];
 const MAX_OPTIONS = 25;
 
+const EXAM_FIELDS = 'name slug group questionCount pointsPerQuestion durationMinutes active autoApproval passingScore approvedRoleId failedRoleId resultChannelId';
+
 // "Apta" = ativa e com pelo menos uma questão ativa (senão a prova não
-// conseguiria começar).
-async function eligibleExams() {
+// conseguiria começar). Só do grupo pedido: provas DAFP nunca aparecem no
+// fluxo TCEL e vice-versa (provas antigas sem grupo contam como TCEL).
+async function eligibleExams(group = 'TCEL') {
   const withQuestions = await Question.distinct('examId', { active: true });
-  return Exam.find({ active: true, _id: { $in: withQuestions } }).select('name questionCount durationMinutes').sort({ createdAt: -1 }).lean();
+  const q = { active: true, _id: { $in: withQuestions }, group: group === 'DAFP' ? 'DAFP' : { $ne: 'DAFP' } };
+  return Exam.find(q).select(EXAM_FIELDS).sort({ createdAt: -1 }).lean();
+}
+
+async function hasActiveQuestions(examId) {
+  return Boolean(await Question.exists({ examId, active: true }));
+}
+
+// Fluxo TCEL (/provas-tcel): SEMPRE a prova de slug "tcel". O examId
+// enviado é ignorado — nenhum pedido pelo fluxo TCEL abre outra prova.
+// Só se nenhuma prova tiver o slug (migração não conseguiu decidir), vale a
+// regra antiga, limitada às provas do grupo TCEL.
+async function resolveTcel(requestedExamId, defaultExamId) {
+  const fixed = await Exam.findOne({ slug: TCEL_SLUG }).select(EXAM_FIELDS).lean();
+  if (fixed) {
+    if (!fixed.active || !(await hasActiveQuestions(fixed._id))) return { error: 'tcel_not_eligible', exams: [] };
+    return { exam: fixed, fixed: true, exams: [fixed] };
+  }
+  const exams = await eligibleExams('TCEL');
+  return { ...resolveExam(requestedExamId, defaultExamId, exams), exams };
+}
+
+function tcelChoiceError(choice) {
+  if (choice.error === 'tcel_not_eligible') return new ApiError(409, 'exam_not_eligible', 'A prova TCEL (identificador "tcel") está inativa ou sem questões ativas. Nenhuma sala foi criada.');
+  if (choice.error === 'no_eligible_exam') return new ApiError(409, 'no_eligible_exam', 'Não há prova apta no site (ativa e com questões ativas). Nenhuma sala foi criada.');
+  if (choice.error === 'exam_not_eligible') return new ApiError(409, 'exam_not_eligible', 'A prova escolhida não está apta (inativa ou sem questões).');
+  return null;
+}
+
+// Fluxo DAFP: a prova escolhida (ID ou slug) precisa existir, ser do grupo
+// DAFP, estar ativa e ter questões ativas. Nunca pelo nome.
+async function resolveDafp(examRef) {
+  if (!String(examRef || '').trim()) throw new ApiError(400, 'exam_required', 'Escolha a prova DAFP (examSlug ou examId).', { field: 'examSlug' });
+  const exam = await findExamByRef(examRef);
+  if (!exam) throw new ApiError(404, 'exam_not_found', 'Prova não encontrada.', { field: 'examSlug' });
+  if (exam.group !== 'DAFP') throw new ApiError(409, 'exam_not_dafp', 'Esta prova não pertence ao grupo DAFP e não pode ser iniciada pelo /provas-dafp.', { field: 'examSlug' });
+  if (!exam.active) throw new ApiError(409, 'exam_inactive', `A prova "${exam.name}" está desativada no site.`);
+  if (!(await hasActiveQuestions(exam._id))) throw new ApiError(409, 'exam_not_eligible', `A prova "${exam.name}" não tem questões ativas.`);
+  return exam;
 }
 
 function resolveExam(requestedExamId, defaultExamId, exams) {
@@ -78,14 +120,19 @@ function openRoomError(room) {
 
 // Sem efeito colateral: interpreta ID/menção, escolhe a prova e avisa se já
 // existe sala aberta. Serve também para "acordar" o site antes do resto.
-async function prepare(actor, { studentDiscordId, supervisorDiscordId = null, examId }) {
+async function prepare(actor, { studentDiscordId, supervisorDiscordId = null, examId, group = 'TCEL' }) {
   checkSupervisor(studentDiscordId, supervisorDiscordId);
-  const exams = await eligibleExams();
-  const choice = resolveExam(examId, actor.config.defaultExamId, exams);
-  if (choice.error === 'no_eligible_exam') throw new ApiError(409, 'no_eligible_exam', 'Não há prova apta no site (ativa e com questões ativas). Nenhuma sala foi criada.');
-  if (choice.error === 'exam_not_eligible') throw new ApiError(409, 'exam_not_eligible', 'A prova escolhida não está apta (inativa ou sem questões).');
-  if (studentDiscordId === actor.actorDiscordId) {
-    // Permitido (ex.: teste), mas sinalizado.
+  let choice;
+  let exams;
+  if (group === 'DAFP') {
+    const exam = await resolveDafp(examId);
+    choice = { exam };
+    exams = [exam];
+  } else {
+    choice = await resolveTcel(examId, actor.config.defaultExamId);
+    const err = tcelChoiceError(choice);
+    if (err) throw err;
+    exams = choice.exams;
   }
   const data = {
     studentDiscordId,
@@ -96,8 +143,9 @@ async function prepare(actor, { studentDiscordId, supervisorDiscordId = null, ex
     examId: choice.exam ? String(choice.exam._id) : '',
     examName: choice.exam ? choice.exam.name : '',
     examCount: String(exams.length),
+    examSlug: choice.exam ? choice.exam.slug || '' : '',
     examListText: examListText(exams),
-    ...examOptionSlots(exams, actor.config.defaultExamId),
+    ...examOptionSlots(exams, choice.fixed ? choice.exam._id : actor.config.defaultExamId),
   };
   if (choice.exam) {
     const open = await findOpenRoom(actor.guildId, studentDiscordId, choice.exam._id);
@@ -130,6 +178,25 @@ function supervisorData(room) {
     supervisorDisplayName: sup ? (sup.displayName || '') : '',
     supervisorMention: sup ? mention(sup.discordUserId) : '',
     supervisorSelected: boolText(Boolean(sup)),
+  };
+}
+
+// Dados fixos da sessão DAFP devolvidos na criação (a configuração de
+// aprovação que vale é a da prova no momento da FINALIZAÇÃO).
+function dafpSessionData(room, exam, config, studentAvatarUrl) {
+  return {
+    sessionId: String(room._id),
+    sessionStatus: 'CRIADA',
+    examGroup: 'DAFP',
+    examSlug: exam.slug || '',
+    studentMention: mention(room.discordUserId),
+    studentAvatarUrl: studentAvatarUrl || '',
+    examMaxScore: String(maxPossibleScore(exam)),
+    autoApproval: boolText(Boolean(exam.autoApproval)),
+    passingScore: exam.autoApproval && exam.passingScore != null ? String(exam.passingScore) : '',
+    approvedRoleId: exam.autoApproval ? exam.approvedRoleId || '' : '',
+    failedRoleId: exam.autoApproval ? exam.failedRoleId || '' : '',
+    resultChannelId: exam.resultChannelId || config.dafp.resultChannelId || '',
   };
 }
 
@@ -168,15 +235,20 @@ async function roomMessage(actor, room, exam, studentId, studentUrl, supervisorU
 }
 
 async function create(actor, {
-  studentDiscordId, studentDisplayName, supervisorDiscordId = null, supervisorDisplayName = '', studentAvatarUrl = '', examId, idempotencyKey, publicBaseUrl,
+  studentDiscordId, studentDisplayName, supervisorDiscordId = null, supervisorDisplayName = '', studentAvatarUrl = '', examId, idempotencyKey, publicBaseUrl, group = 'TCEL',
 }) {
   checkSupervisor(studentDiscordId, supervisorDiscordId);
   return withLock(`${actor.guildId}:${studentDiscordId}`, async () => {
-    const exams = await eligibleExams();
-    const choice = resolveExam(examId, actor.config.defaultExamId, exams);
-    if (choice.error === 'no_eligible_exam') throw new ApiError(409, 'no_eligible_exam', 'Não há prova apta no site. Nenhuma sala foi criada.');
-    if (choice.error === 'exam_not_eligible') throw new ApiError(409, 'exam_not_eligible', 'A prova escolhida não está apta (inativa ou sem questões).');
-    if (choice.choiceRequired) throw new ApiError(422, 'exam_choice_required', 'Há várias provas aptas e nenhuma padrão: escolha a prova.', examOptionSlots(exams, null));
+    let choice;
+    if (group === 'DAFP') {
+      choice = { exam: await resolveDafp(examId) };
+    } else {
+      choice = await resolveTcel(examId, actor.config.defaultExamId);
+      const err = tcelChoiceError(choice);
+      if (err) throw err;
+      if (choice.choiceRequired) throw new ApiError(422, 'exam_choice_required', 'Há várias provas aptas e nenhuma padrão: escolha a prova.', examOptionSlots(choice.exams, null));
+    }
+    const examGroup = choice.exam.group === 'DAFP' ? 'DAFP' : 'TCEL';
 
     const open = await findOpenRoom(actor.guildId, studentDiscordId, choice.exam._id);
     if (open) throw openRoomError(open);
@@ -195,7 +267,7 @@ async function create(actor, {
         studentName: name,
         createdVia: 'discord',
         discord: {
-          guildId: actor.guildId, userId: studentDiscordId, operatorId: actor.actorDiscordId, operatorName: actor.actorDisplayName, requestId, supervisor, studentAvatarUrl: studentAvatarUrl || null,
+          guildId: actor.guildId, userId: studentDiscordId, operatorId: actor.actorDiscordId, operatorName: actor.actorDisplayName, requestId, supervisor, studentAvatarUrl: studentAvatarUrl || null, examGroup,
         },
         // Link de fiscal do fiscal escolhido (sem fiscal no pedido: do
         // operador, como no fluxo antigo).
@@ -210,7 +282,7 @@ async function create(actor, {
     const studentUrl = `${publicBaseUrl}${created.studentLink}`;
     const supervisorUrl = `${publicBaseUrl}${created.proctorLink}`;
     await logSecurityEvent('botghost_room_created', {
-      meta: { roomId: String(created.room._id), examId: String(choice.exam._id), studentDiscordId, supervisorDiscordId, operatorId: actor.actorDiscordId },
+      meta: { roomId: String(created.room._id), examId: String(choice.exam._id), examGroup, studentDiscordId, supervisorDiscordId, operatorId: actor.actorDiscordId },
     });
     const owner = linkOwner(created.room, actor);
     const msg = await roomMessage(actor, created.room, choice.exam, studentDiscordId, studentUrl, supervisorUrl, owner);
@@ -223,6 +295,7 @@ async function create(actor, {
       studentDiscordId,
       studentAvatarSaved: boolText(Boolean(studentAvatarUrl)),
       ...supervisorData(created.room),
+      ...(examGroup === 'DAFP' ? dafpSessionData(created.room, choice.exam, actor.config, studentAvatarUrl) : {}),
     };
     return {
       status: 201,
@@ -270,4 +343,6 @@ async function regenerate(actor, roomId, { publicBaseUrl }) {
   };
 }
 
-module.exports = { eligibleExams, resolveExam, examOptionSlots, prepare, create, regenerate, findOpenRoom };
+module.exports = {
+  eligibleExams, resolveExam, resolveTcel, resolveDafp, examOptionSlots, prepare, create, regenerate, findOpenRoom, roomCode,
+};

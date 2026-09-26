@@ -29,6 +29,12 @@ const PLACEHOLDERS = {
   'resultado.situacao': { help: 'Finalizada / tempo esgotado', sample: 'finalizada' },
   'resultado.tentativa': { help: 'Código curto da tentativa', sample: 'a1b2c3' },
   'resultado.data': { help: 'Data de término', sample: '24/09/2026 14:10' },
+  'avaliador.mencao': { help: 'Menção do avaliador (fiscal escolhido no /provas-dafp)', sample: '<@400000000000000004>' },
+  'avaliador.nome': { help: 'Nome do avaliador', sample: 'Capitão Avaliador' },
+  'avaliador.discordId': { help: 'ID do Discord do avaliador', sample: '400000000000000004' },
+  'resultado.status': { help: 'APROVADO / REPROVADO (ou "Nota registrada" sem aprovação automática)', sample: 'APROVADO' },
+  'resultado.notaMinima': { help: 'Nota mínima para aprovação (vazio sem aprovação automática)', sample: '7' },
+  'resultado.cargoMencao': { help: 'Menção do cargo do resultado (aprovado ou reprovado)', sample: '<@&300000000000000007>' },
   'lista.resultados': { help: 'Lista da página de resultados', sample: '**1.** <@200000000000000002> · Recruta Fictício — **86/100** · Prova TCEL (exemplo) · 24/09/2026 · tentativa `a1b2c3` · não promovido' },
   'pagina.atual': { help: 'Página atual', sample: '1' },
   'pagina.total': { help: 'Total de páginas', sample: '3' },
@@ -137,6 +143,28 @@ const TEMPLATES = {
     default: {
       content: 'Prova finalizada: [[aluno.mencao]] — Prova ([[resultado.notaProva]]) + Prova Oral ([[resultado.notaOral]]) = [[resultado.notaFinal]] — Prova: [[prova.nome]]',
       embed: NO_EMBED,
+      pings: NO_PINGS,
+    },
+  },
+  dafp_result: {
+    label: 'Resultado DAFP (canal)',
+    visibility: 'public',
+    help: 'Resultado de uma prova DAFP (/provas-dafp) no canal de resultados DAFP. O cargo do resultado é aplicado pelo BotGhost no mesmo evento (campos applyRole/roleId da reserva).',
+    placeholders: ['data', ...STUDENT, 'avaliador.mencao', 'avaliador.nome', 'avaliador.discordId', ...RESULT, 'resultado.status', 'resultado.notaMinima', 'resultado.cargoMencao'],
+    pingTargets: ['aluno', 'avaliador'],
+    default: {
+      content: '',
+      embed: embed({
+        title: 'RESULTADO DA PROVA',
+        fields: [
+          { name: 'Aluno', value: '[[aluno.mencao]]', inline: true },
+          { name: 'Avaliador', value: '[[avaliador.mencao]]', inline: true },
+          { name: 'Prova', value: '[[prova.nome]]', inline: false },
+          { name: 'Nota', value: '[[resultado.nota]]/[[resultado.total]]', inline: true },
+          { name: 'Resultado', value: '[[resultado.status]]', inline: true },
+        ],
+        footerText: 'Finalizada em [[resultado.data]]',
+      }),
       pings: NO_PINGS,
     },
   },
@@ -284,6 +312,7 @@ const TEMPLATES = {
 // Quem pode ser notificado, por alvo de ping (IDs vêm do contexto real).
 const PING_TARGET_LABELS = {
   aluno: 'Aluno (menção [[aluno.mencao]])',
+  avaliador: 'Avaliador DAFP (menção [[avaliador.mencao]])',
   operador: 'Operador',
   promovidos: 'Promovidos (menções da lista)',
   cargoPromocao: 'Cargo do anúncio ([[promocao.cargoMencao]])',

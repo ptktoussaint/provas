@@ -104,6 +104,12 @@ Se a mensagem já tinha sido publicada, ela é **editada**, sem novo ping. Vari�
 | `[[resultado.situacao]]` | Finalizada / tempo esgotado | finalizada |
 | `[[resultado.tentativa]]` | Código curto da tentativa | a1b2c3 |
 | `[[resultado.data]]` | Data de término | 24/09/2026 14:10 |
+| `[[avaliador.mencao]]` | Menção do avaliador (fiscal escolhido no /provas-dafp) | <@400000000000000004> |
+| `[[avaliador.nome]]` | Nome do avaliador | Capitão Avaliador |
+| `[[avaliador.discordId]]` | ID do Discord do avaliador | 400000000000000004 |
+| `[[resultado.status]]` | APROVADO / REPROVADO (ou "Nota registrada" sem aprovação automática) | APROVADO |
+| `[[resultado.notaMinima]]` | Nota mínima para aprovação (vazio sem aprovação automática) | 7 |
+| `[[resultado.cargoMencao]]` | Menção do cargo do resultado (aprovado ou reprovado) | <@&300000000000000007> |
 | `[[lista.resultados]]` | Lista da página de resultados | **1.** <@200000000000000002> · Recruta Fictício — **86/100** · Prova TCEL (exemplo) · 24/09/2026 · tentativa `a1b2c3` · não promovido |
 | `[[pagina.atual]]` | Página atual | 1 |
 | `[[pagina.total]]` | Total de páginas | 3 |
@@ -132,6 +138,7 @@ Se a mensagem já tinha sido publicada, ela é **editada**, sem novo ping. Vari�
 | Sala criada (links) (`room_created`) | só o operador | `[[data]]` `[[operador.mencao]]` `[[operador.nome]]` `[[operador.discordId]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[fiscal.mencao]]` `[[fiscal.nome]]` `[[fiscal.discordId]]` `[[prova.duracao]]` `[[sala.nome]]` `[[sala.codigo]]` `[[links.aluno]]` `[[links.fiscal]]` | ninguém |
 | Resultado concluído (canal) (`result_finished`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.nota]]` `[[resultado.total]]` `[[resultado.situacao]]` `[[resultado.tentativa]]` `[[resultado.data]]` | Aluno (menção [[aluno.mencao]]) |
 | Resultado com Prova Oral (`result_updated`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.nota]]` `[[resultado.total]]` `[[resultado.situacao]]` `[[resultado.tentativa]]` `[[resultado.data]]` `[[resultado.notaOriginal]]` `[[resultado.notaProva]]` `[[resultado.notaOral]]` `[[resultado.notaFinal]]` | ninguém |
+| Resultado DAFP (canal) (`dafp_result`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[avaliador.mencao]]` `[[avaliador.nome]]` `[[avaliador.discordId]]` `[[resultado.nota]]` `[[resultado.total]]` `[[resultado.situacao]]` `[[resultado.tentativa]]` `[[resultado.data]]` `[[resultado.status]]` `[[resultado.notaMinima]]` `[[resultado.cargoMencao]]` | Aluno, Avaliador |
 | Resultado removido (edição da mensagem) (`result_removed`) | canal | `[[data]]` `[[aluno.mencao]]` `[[aluno.nome]]` `[[aluno.discordId]]` `[[prova.nome]]` `[[resultado.tentativa]]` | ninguém |
 | Consulta de resultados (`results_list`) | só o operador | `[[data]]` `[[operador.mencao]]` `[[operador.nome]]` `[[operador.discordId]]` `[[lista.resultados]]` `[[pagina.atual]]` `[[pagina.total]]` `[[resultados.total]]` `[[filtro.descricao]]` | ninguém |
 | Consulta sem resultados (`results_empty`) | só o operador | `[[data]]` `[[operador.mencao]]` `[[operador.nome]]` `[[operador.discordId]]` `[[filtro.descricao]]` | ninguém |

@@ -20,6 +20,7 @@ const { buildIceServers } = require('../lib/turn');
 const { parseQuestionsCsv, EXPECTED_COLUMNS } = require('../lib/csvImport');
 const liveState = require('../lib/liveState');
 const { finalizeAttempt } = require('../lib/examLifecycle');
+const examGroups = require('../lib/examGroups');
 const results = require('../lib/results');
 const env = require('../config/env');
 const { createSafeRouter } = require('../lib/safeRouter');
@@ -207,8 +208,16 @@ router.delete('/settings/intro-video', async (req, res) => {
 // ===================== Provas =====================
 
 router.get('/exams', async (req, res) => {
-  const exams = await Exam.find().sort({ createdAt: -1 });
-  res.json({ success: true, exams });
+  const exams = await Exam.find().sort({ createdAt: -1 }).lean();
+  // Quantas questões cada prova tem no banco (todas e só as ativas).
+  const counts = await Question.aggregate([{ $group: { _id: '$examId', total: { $sum: 1 }, active: { $sum: { $cond: ['$active', 1, 0] } } } }]);
+  const byExam = new Map(counts.map((c) => [String(c._id), c]));
+  for (const e of exams) {
+    const c = byExam.get(String(e._id));
+    e.bankTotal = c ? c.total : 0;
+    e.bankActive = c ? c.active : 0;
+  }
+  res.json({ success: true, exams, tcelFixed: exams.some((e) => e.slug === examGroups.TCEL_SLUG) });
 });
 
 router.post('/exams', async (req, res) => {
@@ -216,14 +225,22 @@ router.post('/exams', async (req, res) => {
   if (!name || !String(name).trim()) {
     return res.status(400).json({ success: false, message: 'Nome da prova é obrigatório.' });
   }
-  const exam = await Exam.create({
+  const base = {
     name: String(name).trim(),
     questionCount: Number(questionCount) || 50,
     pointsPerQuestion: Number(pointsPerQuestion) || 2,
     durationMinutes: Number(durationMinutes) || 120,
-    createdBy: req.session.admin.id,
-  });
-  await logSecurityEvent('exam_created', { meta: { examId: exam._id.toString(), name: exam.name }, ip: req.ip });
+  };
+  // Grupo obrigatório na criação (TCEL ou DAFP); o resto da seção
+  // "Integração / Resultado" é opcional aqui e editável depois.
+  const body = { ...(req.body || {}) };
+  if (!body.group) return res.status(400).json({ success: false, message: 'Escolha o grupo da prova (TCEL ou DAFP).' });
+  const { update, errors } = examGroups.validateExamSettings(body, {}, base);
+  if (errors.length) return res.status(400).json({ success: false, message: errors.join(' '), errors });
+  if (update.slug && await Exam.exists({ slug: update.slug })) return res.status(409).json({ success: false, message: `O identificador "${update.slug}" já é usado por outra prova.` });
+  const slug = update.slug || await examGroups.uniqueSlug(base.name);
+  const exam = await Exam.create({ ...base, ...update, slug, createdBy: req.session.admin.id });
+  await logSecurityEvent('exam_created', { meta: { examId: exam._id.toString(), name: exam.name, group: exam.group, slug: exam.slug }, ip: req.ip });
   res.status(201).json({ success: true, exam });
 });
 
@@ -239,6 +256,36 @@ router.put('/exams/:examId', async (req, res) => {
     }
   }
 
+  // Boas-vindas: vídeo ligado/desligado e textos do aluno e do fiscal
+  // (texto puro; a página escapa HTML ao mostrar). Vazio = texto padrão.
+  const has = (k) => req.body && Object.prototype.hasOwnProperty.call(req.body, k);
+  if (has('showIntroVideo')) update.showIntroVideo = examGroups.parseBool(req.body.showIntroVideo);
+  for (const key of ['welcomeTextStudent', 'welcomeTextProctor']) {
+    if (!has(key)) continue;
+    const text = String(req.body[key] == null ? '' : req.body[key]).replace(/\r\n/g, '\n').trim();
+    if (text.length > 3000) return res.status(400).json({ success: false, message: 'Texto de boas-vindas: no máximo 3000 caracteres.' });
+    update[key] = text || null;
+  }
+
+  // Seção "Integração / Resultado": grupo, slug, aprovação automática,
+  // nota mínima, cargos e canal. Validada contra a prova atual (a nota
+  // mínima nunca pode passar da pontuação máxima possível).
+  const SETTINGS = ['group', 'slug', 'autoApproval', 'passingScore', 'approvedRoleId', 'failedRoleId', 'resultChannelId'];
+  const touchesSettings = SETTINGS.some((k) => req.body && Object.prototype.hasOwnProperty.call(req.body, k));
+  if (touchesSettings || 'questionCount' in update || 'pointsPerQuestion' in update) {
+    const current = await Exam.findById(examId).lean();
+    if (!current) return res.status(404).json({ success: false, message: 'Prova não encontrada.' });
+    const merged = { questionCount: update.questionCount ?? current.questionCount, pointsPerQuestion: update.pointsPerQuestion ?? current.pointsPerQuestion };
+    const picked = {};
+    for (const k of SETTINGS) if (req.body && Object.prototype.hasOwnProperty.call(req.body, k)) picked[k] = req.body[k];
+    const { update: settings, errors } = examGroups.validateExamSettings(picked, current, merged);
+    if (errors.length) return res.status(400).json({ success: false, message: errors.join(' '), errors });
+    if (settings.slug && settings.slug !== current.slug && await Exam.exists({ slug: settings.slug, _id: { $ne: current._id } })) {
+      return res.status(409).json({ success: false, message: `O identificador "${settings.slug}" já é usado por outra prova.` });
+    }
+    Object.assign(update, settings);
+  }
+
   // Link direto para o vídeo desta prova, como alternativa ao upload — ver
   // isHttpUrl() e POST /exams/:examId/intro-video.
   if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'introVideoUrl')) {
@@ -251,7 +298,7 @@ router.put('/exams/:examId', async (req, res) => {
 
   const exam = await Exam.findByIdAndUpdate(examId, update, { new: true, runValidators: true });
   if (!exam) return res.status(404).json({ success: false, message: 'Prova não encontrada.' });
-  await logSecurityEvent('exam_updated', { meta: { examId }, ip: req.ip });
+  await logSecurityEvent('exam_updated', { meta: { examId, fields: Object.keys(update) }, ip: req.ip });
   res.json({ success: true, exam });
 });
 

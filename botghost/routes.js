@@ -13,6 +13,7 @@ const rooms = require('./roomsService');
 const results = require('./resultsService');
 const promotions = require('./promotionsService');
 const notifications = require('./notifications');
+const dafp = require('./dafpService');
 const { MAX_SELECTIONS } = require('./selection');
 
 // API máquina-a-máquina do BotGhost: /api/integrations/botghost/*.
@@ -20,7 +21,7 @@ const { MAX_SELECTIONS } = require('./selection');
 // cookie nem sessão — só a chave do header Authorization. As rotas /api/admin
 // continuam exigindo login do admin; nada daqui dá acesso a elas.
 
-const ACTIONS = { generate: 'generate', results: 'results', promote: 'promote', any: 'any' };
+const ACTIONS = { generate: 'generate', results: 'results', promote: 'promote', any: 'any', dafp: 'dafp' };
 
 function createIntegrationRouter({ getEnv, getPublicBaseUrl, onNotificationCreated = () => {} }) {
   const router = express.Router();
@@ -128,9 +129,12 @@ function createIntegrationRouter({ getEnv, getPublicBaseUrl, onNotificationCreat
 
   // ---------------- Gerar prova ----------------
 
+  // Fluxo TCEL: com a prova fixa "tcel" definida, só ela aparece (e é a
+  // padrão); nunca provas DAFP.
   router.get('/exams', route(ACTIONS.generate, async (req, res, actor) => {
-    const exams = await rooms.eligibleExams();
-    const def = actor.config.defaultExamId;
+    const choice = await rooms.resolveTcel(null, actor.config.defaultExamId);
+    const exams = choice.exams || [];
+    const def = choice.fixed ? String(choice.exam._id) : actor.config.defaultExamId;
     const hasDefault = Boolean(def && exams.some((e) => String(e._id) === def));
     return reply(res, 200, 'exams', `${exams.length} prova(s) apta(s).`, {
       examCount: String(exams.length),
@@ -193,6 +197,97 @@ function createIntegrationRouter({ getEnv, getPublicBaseUrl, onNotificationCreat
       run: () => rooms.regenerate(actor, roomId, { publicBaseUrl: getPublicBaseUrl() }),
     });
     return send(res, out);
+  }));
+
+  // ---------------- DAFP (/provas-dafp) ----------------
+  // Rotas próprias: só provas do grupo DAFP entram e saem daqui. As rotas
+  // TCEL acima continuam exatamente como antes (sempre a prova "tcel").
+
+  function studentParam(src) {
+    const raw = String((src && src.student) || '').trim();
+    if (!raw) return null;
+    const id = parseUserIdInput(raw);
+    if (!id) throw new ApiError(400, 'invalid_user', 'Usuário: informe o ID (17 a 20 dígitos) ou a menção <@ID>.', { field: 'student' });
+    return id;
+  }
+
+  function examRef(src) {
+    return optText(src, 'examSlug', 60) || optText(src, 'examId', 60) || optText(src, 'exam', 60);
+  }
+
+  function requireSupervisor(body) {
+    const id = optSupervisor(body);
+    if (!id) throw new ApiError(400, 'supervisor_required', 'Avaliador: informe o ID ou a menção do avaliador (supervisorDiscordId).', { field: 'supervisorDiscordId' });
+    return id;
+  }
+
+  router.get('/dafp/exams', route(ACTIONS.dafp, async (req, res, actor) => {
+    const data = await dafp.listExams(actor);
+    return reply(res, 200, 'dafp_exams', `${data.examCount} prova(s) DAFP apta(s).`, data);
+  }));
+
+  router.get('/dafp/exams/:ref', route(ACTIONS.dafp, async (req, res, actor) => {
+    const data = await dafp.getExam(actor, String(req.params.ref || '').slice(0, 60));
+    return reply(res, 200, 'dafp_exam', 'Prova DAFP encontrada.', data);
+  }));
+
+  router.post('/dafp/rooms/prepare', route(ACTIONS.dafp, async (req, res, actor) => {
+    const studentDiscordId = reqUserInput(req.body, 'student', 'Aluno');
+    const supervisorDiscordId = requireSupervisor(req.body);
+    const data = await rooms.prepare(actor, { studentDiscordId, supervisorDiscordId, examId: examRef(req.body), group: 'DAFP' });
+    return reply(res, 200, 'ready', 'Pronto para criar a sessão DAFP.', data);
+  }));
+
+  router.post('/dafp/rooms', route(ACTIONS.dafp, async (req, res, actor) => {
+    const studentDiscordId = reqUserInput(req.body, 'student', 'Aluno');
+    const supervisorDiscordId = requireSupervisor(req.body);
+    const exam = examRef(req.body);
+    const studentDisplayName = optText(req.body, 'studentDisplayName', 80);
+    const supervisorDisplayName = optText(req.body, 'supervisorDisplayName', 80);
+    const studentAvatarUrl = avatarUrl(optText(req.body, 'studentAvatarUrl', 400), studentDiscordId);
+    const payload = { flow: 'DAFP', studentDiscordId, supervisorDiscordId, supervisorDisplayName, exam, studentDisplayName };
+    if (studentAvatarUrl) payload.studentAvatarUrl = studentAvatarUrl;
+    const out = await idempotent({
+      req,
+      route: 'dafp_rooms',
+      actorDiscordId: actor.actorDiscordId,
+      payload,
+      run: () => rooms.create(actor, {
+        studentDiscordId, studentDisplayName, supervisorDiscordId, supervisorDisplayName, studentAvatarUrl, examId: exam, idempotencyKey: req.body.idempotencyKey, publicBaseUrl: getPublicBaseUrl(), group: 'DAFP',
+      }),
+    });
+    return send(res, out);
+  }));
+
+  router.post('/dafp/rooms/:id/regenerate-links', route(ACTIONS.dafp, async (req, res, actor) => {
+    const roomId = reqObjectId(req.params.id, 'Sessão');
+    const room = await require('../models/Room').findOne({ _id: roomId, discordGuildId: actor.guildId }).select('examGroup').lean();
+    if (room && room.examGroup !== 'DAFP') throw new ApiError(409, 'session_not_dafp', 'Esta sessão não é do fluxo DAFP.');
+    const out = await idempotent({
+      req,
+      route: 'dafp_regenerate',
+      actorDiscordId: actor.actorDiscordId,
+      payload: { roomId },
+      run: () => rooms.regenerate(actor, roomId, { publicBaseUrl: getPublicBaseUrl() }),
+    });
+    return send(res, out);
+  }));
+
+  router.get('/dafp/sessions/:id', route(ACTIONS.dafp, async (req, res, actor) => {
+    const data = await dafp.getSession(actor, reqObjectId(req.params.id, 'Sessão'));
+    return reply(res, 200, 'dafp_session', data.displayText, data);
+  }));
+
+  router.get('/dafp/results', route(ACTIONS.dafp, async (req, res, actor) => {
+    const data = await dafp.listResults(actor, {
+      studentDiscordId: studentParam(req.query),
+      examRef: examRef(req.query),
+      from: optText(req.query, 'from', 10),
+      to: optText(req.query, 'to', 10),
+      page: optInt(req.query, 'page', { min: 0, max: 100000, def: 0 }),
+      pageSize: optInt(req.query, 'pageSize', { min: 1, max: 25, def: 10 }),
+    });
+    return reply(res, 200, data.items.length ? 'dafp_results' : 'dafp_results_empty', data.items.length ? `Página ${data.pageNumber} de ${data.pages}.` : 'Nenhum resultado DAFP encontrado.', data);
   }));
 
   // ---------------- Conferir resultados ----------------

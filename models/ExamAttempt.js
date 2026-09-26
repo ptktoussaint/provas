@@ -96,6 +96,27 @@ const examAttemptSchema = new mongoose.Schema({
   supervisorDiscordId: { type: String, default: null },
   supervisorDisplayName: { type: String, default: null },
   studentAvatarUrl: { type: String, default: null },
+  // Grupo da prova no início da tentativa (TCEL/DAFP). Antigas: null = TCEL.
+  // Separa as consultas do bot: o TCEL nunca lista resultados DAFP.
+  examGroup: { type: String, default: null },
+  // Resultado de aprovação decidido UMA vez, na finalização, com a
+  // configuração da prova naquele momento (mudar a prova depois não
+  // reescreve resultados antigos). resultStatus: APROVADO | REPROVADO |
+  // NAO_APLICAVEL (aprovação automática desligada).
+  outcome: {
+    decidedAt: { type: Date, default: null },
+    autoApproval: { type: Boolean, default: false },
+    passingScore: { type: Number, default: null },
+    score: { type: Number, default: null },
+    maxScore: { type: Number, default: null },
+    resultStatus: { type: String, default: null },
+    resultRoleId: { type: String, default: null },
+    approvedRoleId: { type: String, default: null },
+    failedRoleId: { type: String, default: null },
+    resultChannelId: { type: String, default: null },
+    examSlug: { type: String, default: null },
+    examName: { type: String, default: null },
+  },
   // Pontuação máxima congelada no momento da prova (questões sorteadas ×
   // pontos por questão). Tentativas antigas sem este campo usam o mesmo
   // cálculo a partir do snapshot — ver lib/results.js maxScoreOf().
@@ -131,5 +152,6 @@ const examAttemptSchema = new mongoose.Schema({
 
 examAttemptSchema.index({ roomId: 1, status: 1 });
 examAttemptSchema.index({ discordGuildId: 1, discordUserId: 1, deletedAt: 1 });
+examAttemptSchema.index({ examGroup: 1, status: 1 });
 
 module.exports = mongoose.model('ExamAttempt', examAttemptSchema);

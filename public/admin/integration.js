@@ -91,6 +91,9 @@
     $('ig-announce-channel').value = c.promotion.announceChannelId || '';
     $('ig-announce-role').value = c.promotion.announceRoleId || '';
     $('ig-nickname-template').value = c.promotion.nicknameTemplate || '';
+    $('ig-ops-dafp').value = (c.operatorIds.dafp || []).join(', ');
+    $('ig-dafp-result-channel').value = (c.dafp && c.dafp.resultChannelId) || '';
+    $('ig-dafp-command-channel').value = (c.dafp && c.dafp.commandChannelId) || '';
     $('ig-default-exam').innerHTML = '<option value="">(sem padrão — usa a única apta, ou o operador escolhe)</option>'
       + data.exams.map((e) => `<option value="${esc(e._id)}" ${String(e._id) === String(c.defaultExamId) ? 'selected' : ''}>${esc(e.name)}${e.active ? '' : ' (inativa)'}</option>`).join('');
   }
@@ -100,7 +103,8 @@
     const msg = $('ig-config-msg');
     msg.textContent = 'Salvando...';
     const body = {
-      operatorIds: { generate: $('ig-ops-generate').value, results: $('ig-ops-results').value, promote: $('ig-ops-promote').value },
+      operatorIds: { generate: $('ig-ops-generate').value, results: $('ig-ops-results').value, promote: $('ig-ops-promote').value, dafp: $('ig-ops-dafp').value },
+      dafp: { resultChannelId: $('ig-dafp-result-channel').value, commandChannelId: $('ig-dafp-command-channel').value },
       defaultExamId: $('ig-default-exam').value || null,
       channels: { panel: $('ig-ch-panel').value, results: $('ig-ch-results').value, test: $('ig-ch-test').value },
       promotion: {

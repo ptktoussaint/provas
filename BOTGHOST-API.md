@@ -130,6 +130,8 @@ Registra a mensagem do painel depois de publicada. Assim o botão **Atualizar pa
 
 ## 5. Gerar prova
 
+> **Prova fixa do fluxo TCEL.** Este fluxo (`/provas-tcel`) usa **sempre** a prova de identificador (slug) `tcel` — o `examId` enviado é ignorado e provas DAFP nunca aparecem aqui. Se a prova `tcel` estiver desativada ou sem questões, a resposta é `409 exam_not_eligible` (nenhuma outra prova é aberta). O novo fluxo **DAFP** (`/provas-dafp`) tem rotas próprias (`/dafp/*`): ver **BOTGHOST_DAFP_IMPLEMENTACAO.md**.
+
 ### `GET /exams`
 Provas aptas (ativas e com questões ativas).
 - **URL Params:** identificação
@@ -172,6 +174,8 @@ Gera **novos** links: um do aluno e um de fiscal **para o fiscal escolhido na cr
 ---
 
 ## 6. Conferir resultados — `GET /results`
+
+Só resultados de provas **TCEL** (resultados DAFP ficam em `GET /dafp/results`). Os candidatos da promoção também são só TCEL.
 
 Lê o banco **na hora**. Mensagens já mostradas no Discord são "fotos" do momento e não se atualizam sozinhas: use o botão "Atualizar".
 - **URL Params:** identificação + (opcionais) `student` (ID/menção), `examId`, `from` e `to` (`AAAA-MM-DD` ou `DD/MM/AAAA`, horário de Brasília), `sort` (`date-desc` padrão, `date-asc`, `score-desc`, `score-asc`), `page` (começa em 0), `pageSize` (1–25, padrão 10)
@@ -376,6 +380,7 @@ Reserva o aviso por 2 minutos e devolve o conteúdo **atual**.
   - `action`: `send` (nova mensagem) ou `edit` (editar a existente)
   - `channelId`, `messageId` (quando é `edit`), `keepComponents` (`"true"` no painel)
   - `kind`, `templateKey`, mensagem pronta (`native.*`, `discordBodyJson`)
+  - `applyRole` (sempre presente): `"true"` só no 1º envio de um resultado **DAFP** com aprovação automática — então aplique o cargo `roleId` ao membro `memberDiscordId`. Resultados DAFP trazem também os campos da seção D do **BOTGHOST_DAFP_IMPLEMENTACAO.md**.
 - **Sem 200 = não publique nada:**
 
 | code | Significado |

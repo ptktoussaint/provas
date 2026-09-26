@@ -11,6 +11,7 @@ const templates = require('./templates/store');
 const { renderTemplate } = require('./templates/render');
 const { sampleContext } = require('./templates/catalog');
 const { userText, fmtNumber, fmtDateTime, mention, roleMention } = require('./format');
+const { boolText } = require('./http');
 
 // Avisos que o bot do BotGhost publica em canais (resultado, anúncio,
 // teste de modelo, atualização do painel). O site NUNCA fala direto com o
@@ -159,6 +160,30 @@ function resultContext(attempt) {
   };
 }
 
+// Resultado DAFP: avaliador, aprovado/reprovado e cargo vêm do resultado
+// gravado na finalização (attempt.outcome) — nunca recalculados aqui.
+const DAFP_STATUS_TEXT = { APROVADO: 'APROVADO', REPROVADO: 'REPROVADO', NAO_APLICAVEL: 'Nota registrada' };
+
+function dafpContext(attempt) {
+  const base = resultContext(attempt);
+  const o = attempt.outcome || {};
+  const supId = attempt.supervisorDiscordId || '';
+  return {
+    ctx: {
+      ...base.ctx,
+      'prova.nome': userText(o.examName || (attempt.examId && attempt.examId.name) || '—', 100),
+      'resultado.nota': fmtNumber(writtenScore(attempt)),
+      'avaliador.mencao': supId ? mention(supId) : '—',
+      'avaliador.nome': userText(attempt.supervisorDisplayName || '—', 80),
+      'avaliador.discordId': supId,
+      'resultado.status': DAFP_STATUS_TEXT[o.resultStatus] || 'Nota registrada',
+      'resultado.notaMinima': o.autoApproval && o.passingScore != null ? fmtNumber(o.passingScore) : '',
+      'resultado.cargoMencao': o.resultRoleId ? roleMention(o.resultRoleId) : '',
+    },
+    pingIds: { aluno: [attempt.discordUserId], avaliador: supId ? [supId] : [] },
+  };
+}
+
 // Lote grande = várias mensagens: o cargo só notifica na primeira (as
 // seguintes mostram a menção sem pingar de novo).
 function announcementContext(payload, chunkIndex = 0) {
@@ -197,6 +222,19 @@ async function buildClaimContent(n, config) {
       return { templateKey: 'result_removed', action: 'edit', channelId: n.message.channelId, messageId: n.message.messageId, ctx, pingIds, revision };
     }
     if (!isFinished(attempt)) throw new ClaimProblem(409, 'not_ready', 'A prova ainda não foi finalizada.');
+    if (attempt.examGroup === 'DAFP') {
+      // DAFP: canal próprio (o da prova ou o padrão DAFP) e cargo do
+      // resultado para o BotGhost aplicar — só no PRIMEIRO envio (edições
+      // não reaplicam cargo).
+      const { ctx, pingIds } = dafpContext(attempt);
+      const o = attempt.outcome || {};
+      const dafpFields = require('./dafpService').resultFields(attempt, { config, published: hasMessage });
+      const channelId = hasMessage ? n.message.channelId : (o.resultChannelId || config.dafp.resultChannelId);
+      if (!channelId) throw new ClaimProblem(409, 'config_missing', 'Canal padrão de resultados DAFP não configurado na aba Integração BotGhost (nem canal próprio na prova).');
+      const action = hasMessage ? 'edit' : 'send';
+      const extra = { ...dafpFields, applyRole: boolText(action === 'send' && Boolean(o.resultRoleId)), roleId: action === 'send' ? o.resultRoleId || '' : '', memberDiscordId: attempt.discordUserId };
+      return { templateKey: 'dafp_result', action, channelId, messageId: hasMessage ? n.message.messageId : undefined, ctx, pingIds, revision, extra };
+    }
     const { ctx, pingIds } = resultContext(attempt);
     // Com prova oral lançada, a mensagem mostra a soma (antes ou depois de
     // já ter sido publicada).
@@ -238,6 +276,11 @@ function claimResponse(n, built, rendered, leaseToken, leaseUntil) {
     native: rendered.native,
     discordBodyJson: rendered.discordBodyJson,
     displayText: rendered.message.content || (rendered.message.embeds[0] && (rendered.message.embeds[0].title || rendered.message.embeds[0].description)) || '',
+    // Fluxo DAFP: aplicar cargo? (sempre presente; "false" fora do DAFP).
+    applyRole: 'false',
+    roleId: '',
+    memberDiscordId: '',
+    ...(built.extra || {}),
   };
 }
 

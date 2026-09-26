@@ -76,7 +76,8 @@ async function lockedUserIds(guildId) {
 // mesmo usuário aparecem juntas (histórico).
 async function listCandidates(guildId, { studentDiscordId = null, page = 0 } = {}) {
   const locked = await lockedUserIds(guildId);
-  const match = { discordGuildId: guildId, deletedAt: null, archivedAt: null, status: { $in: FINISHED_STATUSES } };
+  // Promoção TCEL: resultados DAFP nunca são candidatos.
+  const match = { discordGuildId: guildId, deletedAt: null, archivedAt: null, status: { $in: FINISHED_STATUSES }, examGroup: { $ne: 'DAFP' } };
   if (studentDiscordId) {
     if (locked.includes(studentDiscordId)) return { items: [], total: 0, page: 0, pages: 1, locked };
     match.discordUserId = studentDiscordId;
@@ -245,9 +246,10 @@ async function siteChecks(actor, draft) {
   for (const s of draft.selections) {
     const errors = [];
     const warnings = [];
-    const a = await ExamAttempt.findById(s.attemptId).select('status deletedAt archivedAt discordUserId discordGuildId revision score adjustedScore oralScore maxScore pointsPerQuestion snapshot.order').lean();
+    const a = await ExamAttempt.findById(s.attemptId).select('status deletedAt archivedAt examGroup discordUserId discordGuildId revision score adjustedScore oralScore maxScore pointsPerQuestion snapshot.order').lean();
     let needsReReview = false;
     if (!a || a.deletedAt) errors.push('Resultado excluído ou inexistente.');
+    else if (a.examGroup === 'DAFP') errors.push('Resultado de prova DAFP não vale para a promoção TCEL.');
     else if (a.archivedAt) errors.push('Resultado arquivado (desarquive no admin para promover).');
     else if (!isFinished(a)) errors.push('Resultado não é de prova finalizada.');
     else if (a.discordUserId !== s.discordUserId || a.discordGuildId !== actor.guildId) errors.push('Resultado não está mais vinculado a esta pessoa.');

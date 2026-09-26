@@ -109,6 +109,10 @@
 }
 .discord-form .field-group { display: flex; flex-direction: column; }
 .discord-subtitle { margin: 18px 0 6px; font-size: 13px; color: var(--text-lilac); text-transform: uppercase; letter-spacing: 0.05em; }
+/* Seção "Integração / Resultado" de cada prova (Provas & Questões). */
+.exam-settings { flex-basis: 100%; width: 100%; margin-top: 10px; padding: 12px 14px; background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: var(--radius-md); }
+.exam-settings .discord-subtitle { margin-top: 0; }
+
 /* Tabela de Resultados: cada célula com uma linha principal e, abaixo,
    uma linha secundária menor; ações numa única linha à direita. */
 .results-table td { vertical-align: middle; }

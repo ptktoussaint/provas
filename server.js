@@ -32,6 +32,14 @@ process.on('uncaughtException', (err) => {
 
 async function main() {
   await connectDb();
+  // Grupos TCEL/DAFP: marca a prova fixa do /provas-tcel ("tcel") e dá
+  // grupo/slug às provas antigas. Idempotente; uma falha aqui não impede o
+  // site de subir (o fluxo TCEL cai na regra antiga, só entre provas TCEL).
+  try {
+    await require('./lib/examGroups').migrateExamGroups();
+  } catch (err) {
+    console.error('[migracao] falha ao migrar grupos de provas (o site segue no ar):', err && err.message);
+  }
   const sessionMiddleware = createSessionMiddleware();
 
   const app = express();

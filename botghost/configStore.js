@@ -15,7 +15,11 @@ function toPlain(doc) {
   const ch = o.channels || {};
   const pr = o.promotion || {};
   return {
-    operatorIds: { generate: ops.generate || [], results: ops.results || [], promote: ops.promote || [] },
+    operatorIds: { generate: ops.generate || [], results: ops.results || [], promote: ops.promote || [], dafp: ops.dafp || [] },
+    dafp: {
+      resultChannelId: (o.dafp && o.dafp.resultChannelId) || null,
+      commandChannelId: (o.dafp && o.dafp.commandChannelId) || null,
+    },
     defaultExamId: o.defaultExamId ? String(o.defaultExamId) : null,
     channels: { panel: ch.panel || null, results: ch.results || null, test: ch.test || null },
     promotion: {
@@ -75,6 +79,11 @@ function validateConfig(body = {}) {
       generate: ids(ops.generate, 'Operadores que podem gerar provas', errors),
       results: ids(ops.results, 'Operadores que podem consultar notas', errors),
       promote: ids(ops.promote, 'Operadores que podem promover', errors),
+      dafp: ids(ops.dafp, 'Professores que podem gerar provas DAFP', errors),
+    },
+    dafp: {
+      resultChannelId: channel((body.dafp || {}).resultChannelId, 'Canal padrão de resultados DAFP', errors),
+      commandChannelId: channel((body.dafp || {}).commandChannelId, 'Canal do /provas-dafp', errors),
     },
     defaultExamId: body.defaultExamId ? String(body.defaultExamId) : null,
     channels: {
@@ -108,6 +117,7 @@ async function saveConfig(update, actor) {
   doc.defaultExamId = update.defaultExamId || null;
   doc.channels = update.channels;
   doc.promotion = update.promotion;
+  doc.dafp = update.dafp;
   doc.updatedBy = actor;
   await doc.save();
   invalidate();

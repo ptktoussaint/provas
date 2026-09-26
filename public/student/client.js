@@ -61,6 +61,15 @@
     document.getElementById('intro-student-name').textContent = `${data.room.studentName} — ${data.room.roomLabel}`;
     document.getElementById('welcome-student-name').textContent = data.room.studentName || 'candidato(a)';
     document.getElementById('welcome-exam-name').textContent = data.exam.name || 'prova';
+    // Texto de boas-vindas próprio desta prova (painel admin); sem ele,
+    // fica o texto padrão da página.
+    if (data.exam.welcomeText) {
+      renderWelcomeText(document.getElementById('welcome-body'), data.exam.welcomeText, {
+        aluno: data.room.studentName || '',
+        prova: data.exam.name || '',
+        duracao: data.exam.durationMinutes ? `${data.exam.durationMinutes} minutos` : '',
+      });
+    }
 
     // Mostra os últimos dígitos do ID da sala de forma sempre visível — o
     // fiscal e o aluno precisam estar na MESMA sala para a transmissão
@@ -374,6 +383,15 @@
     clearInterval(timerInterval);
     window.StudentWebRTC.stopAll();
     if (socket) socket.disconnect();
+  }
+
+  // Texto puro do admin → parágrafos (linha em branco separa), com as
+  // variáveis {aluno}, {prova}, {duracao}. Sempre escapado: nada de HTML.
+  function renderWelcomeText(el, text, vars) {
+    el.innerHTML = String(text).split(/\n\s*\n/).map((p) => {
+      const html = escapeHtml(p.trim()).replace(/\{(aluno|prova|duracao|fiscal)\}/g, (m, k) => (vars[k] != null ? `<strong>${escapeHtml(vars[k])}</strong>` : m));
+      return `<p class="welcome-text">${html.replace(/\n/g, '<br>')}</p>`;
+    }).filter((p) => p !== '<p class="welcome-text"></p>').join('');
   }
 
   function escapeHtml(str) {

@@ -400,9 +400,10 @@
     const data = await api('/settings');
     if (!data.success) return;
     document.getElementById('settings-platform-name').value = data.settings.platformName || '';
-    document.getElementById('settings-intro-video-status').textContent = data.settings.introVideoUrl
-      ? '✓ Vídeo padrão enviado.'
-      : 'Nenhum vídeo padrão enviado.';
+    const videoStatus = document.getElementById('settings-intro-video-status');
+    videoStatus.textContent = data.settings.introVideoUrl ? '✓ Vídeo padrão configurado' : 'Nenhum vídeo padrão';
+    videoStatus.dataset.state = data.settings.introVideoUrl ? 'ok' : 'none';
+    document.getElementById('remove-settings-intro-video-btn').classList.toggle('hidden', !data.settings.introVideoUrl);
     document.getElementById('settings-intro-video-url').value = data.settings.introVideoUrl || '';
     document.getElementById('settings-logo-url').value = data.settings.logoUrl || '';
     previewImageUrl(data.settings.logoUrl, 'settings-logo-preview', 'settings-logo-preview-status');
@@ -519,6 +520,9 @@
   // ---------------- Provas ----------------
   let examsCache = [];
   let selectedExamId = null;
+  // Painéis abertos de cada prova — continuam abertos depois de salvar ou
+  // enviar um vídeo (a lista é redesenhada).
+  const openExamPanels = new Set();
 
   async function loadExams() {
     const data = await api('/exams');
@@ -564,18 +568,51 @@
   }
 
   // Tela de boas-vindas da prova: vídeo sim/não e textos do aluno e do fiscal.
+  // Situação do vídeo de boas-vindas da prova (texto curto + cor).
+  function examVideoState(exam) {
+    if (exam.showIntroVideo === false) return { text: 'Vídeo desligado', cls: 'badge-warn' };
+    if (exam.introVideoUrl) return { text: 'Vídeo próprio', cls: 'badge-ok' };
+    return { text: 'Vídeo padrão da plataforma', cls: 'badge-neutral' };
+  }
+
   function examWelcomeForm(exam) {
     const id = exam._id;
     const on = exam.showIntroVideo !== false;
+    const link = /^https?:\/\//i.test(exam.introVideoUrl || '') ? exam.introVideoUrl : '';
     return `
       <form class="exam-settings hidden" data-welcome-form="${id}">
-        <h4 class="discord-subtitle">Tela de boas-vindas</h4>
+        <h4 class="discord-subtitle">Boas-vindas e vídeo</h4>
         <div class="discord-form-grid">
           <div class="field-group"><label>Mostrar vídeo ao abrir a prova?</label>
             <select name="showIntroVideo">
               <option value="true" ${on ? 'selected' : ''}>Sim (vídeo desta prova ou o padrão da plataforma)</option>
               <option value="false" ${on ? '' : 'selected'}>Não (vai direto para o compartilhamento de tela)</option>
             </select></div>
+        </div>
+        <div class="media-block media-block-compact">
+          <div class="media-block-head">
+            <div>
+              <strong>Vídeo desta prova</strong>
+              <span class="media-block-sub">${exam.introVideoUrl ? 'Esta prova tem vídeo próprio.' : 'Sem vídeo próprio: usa o vídeo padrão da plataforma.'}</span>
+            </div>
+            ${exam.introVideoUrl ? `<button type="button" class="small-btn secondary-btn media-remove" data-exam-video-remove="${id}">Remover vídeo</button>` : ''}
+          </div>
+          <div class="media-grid">
+            <div class="media-option">
+              <label>Enviar arquivo (MP4, WebM ou OGG)</label>
+              <div class="media-row">
+                <input type="file" accept="video/mp4,video/webm,video/ogg" data-exam-video-file="${id}" />
+                <button type="button" class="small-btn secondary-btn" data-exam-video-upload="${id}">Enviar</button>
+              </div>
+            </div>
+            <div class="media-option">
+              <label>…ou colar o link direto do vídeo</label>
+              <div class="media-row">
+                <input data-exam-video-link="${id}" placeholder="https://..." value="${escapeHtml(link)}" />
+                <button type="button" class="small-btn secondary-btn" data-exam-video-url="${id}">Salvar link</button>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="discord-form-grid">
           <div class="field-group"><label>Texto para o ALUNO</label>
@@ -585,7 +622,7 @@
         </div>
         <p class="hint" style="margin-top:0">O título ("Parabéns, NOME!" / "Olá, NOME!") e o botão continuam iguais; o texto abaixo do título é substituído. Deixe uma linha em branco para separar parágrafos. Variáveis: <code>{aluno}</code>, <code>{prova}</code>, <code>{duracao}</code> e, no texto do fiscal, <code>{fiscal}</code>.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <button type="submit" class="small-btn">Salvar</button>
+          <button type="submit" class="small-btn">Salvar textos e opção de vídeo</button>
           <button type="button" class="small-btn secondary-btn" data-welcome-cancel="${id}">Fechar</button>
         </div>
         <p class="error-msg" data-welcome-msg></p>
@@ -593,10 +630,8 @@
   }
 
   function examIntegrationSummary(exam) {
-    const group = exam.group || 'TCEL';
-    const parts = [`<span class="badge badge-neutral">${escapeHtml(group)}</span>`];
+    const parts = [];
     if (exam.slug) parts.push(`identificador <code>${escapeHtml(exam.slug)}</code>`);
-    if (exam.slug === 'tcel') parts.push('⭐ prova fixa do /provas-tcel');
     parts.push(exam.autoApproval && exam.passingScore != null
       ? `aprovação automática: mínimo ${escapeHtml(String(exam.passingScore))} de ${examMaxScore(exam)}`
       : 'sem aprovação automática');
@@ -646,40 +681,54 @@
   function renderExams() {
     const el = document.getElementById('exams-list');
     if (examsCache.length === 0) { el.innerHTML = '<p class="list-empty">Nenhuma prova cadastrada.</p>'; return; }
-    el.innerHTML = examsCache.map((exam) => `
-      <div class="item-row">
-        <div>
-          <strong>${escapeHtml(exam.name)}</strong>
-          <div class="room-item-meta">${exam.questionCount} questões · ${exam.pointsPerQuestion} pts/questão · ${exam.durationMinutes} min</div>
-          <div class="room-item-meta">${bankSummary(exam)}</div>
-          <div class="room-item-meta">${examIntegrationSummary(exam)}</div>
+    el.innerHTML = examsCache.map((exam) => {
+      const video = examVideoState(exam);
+      return `
+      <div class="exam-card">
+        <div class="exam-card-head">
+          <div class="exam-card-title">
+            <strong>${escapeHtml(exam.name)}</strong>
+            <span class="badge badge-neutral">${escapeHtml(exam.group || 'TCEL')}</span>
+            ${exam.slug === 'tcel' ? '<span class="badge badge-ok">⭐ prova fixa do /provas-tcel</span>' : ''}
+            <span class="badge ${exam.active ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${exam.active ? 'Ativa' : 'Inativa'}</span>
+          </div>
+          <div class="exam-card-actions">
+            <button class="small-btn" data-view-questions="${exam._id}" data-name="${escapeHtml(exam.name)}">Questões</button>
+            <button class="small-btn secondary-btn" data-exam-welcome="${exam._id}">🎬 Boas-vindas e vídeo</button>
+            <button class="small-btn secondary-btn" data-exam-settings="${exam._id}">⚙ Integração / Resultado</button>
+            <button class="small-btn secondary-btn exam-toggle" data-toggle-exam="${exam._id}" data-active="${exam.active}">${exam.active ? 'Desativar' : 'Ativar'}</button>
+          </div>
         </div>
-        <div class="room-item-actions">
-          <span class="badge ${exam.active ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${exam.active ? 'Ativa' : 'Inativa'}</span>
-          <button class="small-btn secondary-btn" data-toggle-exam="${exam._id}" data-active="${exam.active}">${exam.active ? 'Desativar' : 'Ativar'}</button>
-          <button class="small-btn secondary-btn" data-exam-welcome="${exam._id}">🎬 Boas-vindas</button>
-          <button class="small-btn secondary-btn" data-exam-settings="${exam._id}">⚙ Integração / Resultado</button>
-          <button class="small-btn" data-view-questions="${exam._id}" data-name="${escapeHtml(exam.name)}">Questões</button>
+        <div class="exam-card-facts">
+          <span>${exam.questionCount} questões</span>
+          <span>${exam.pointsPerQuestion} pts/questão · máx. ${examMaxScore(exam)}</span>
+          <span>${exam.durationMinutes} min</span>
+          <span class="badge ${video.cls}"><span class="badge-dot"></span>🎬 ${video.text}</span>
         </div>
+        <div class="room-item-meta">${bankSummary(exam)}</div>
+        <div class="room-item-meta">${examIntegrationSummary(exam)}</div>
         ${examWelcomeForm(exam)}
         ${examSettingsForm(exam)}
-        <div class="room-item-actions">
-          ${exam.showIntroVideo === false
-            ? '<span class="badge badge-warn"><span class="badge-dot"></span>Vídeo desligado nesta prova</span>'
-            : `<span class="badge ${exam.introVideoUrl ? 'badge-ok' : 'badge-neutral'}"><span class="badge-dot"></span>${exam.introVideoUrl ? 'Vídeo de boas-vindas enviado' : 'Sem vídeo próprio (usa o padrão)'}</span>`}
-          <input type="file" accept="video/mp4,video/webm,video/ogg" data-exam-video-file="${exam._id}" style="max-width:220px" />
-          <button class="small-btn secondary-btn" data-exam-video-upload="${exam._id}">Enviar vídeo</button>
-          <button class="small-btn secondary-btn" data-exam-video-url="${exam._id}">Colar link</button>
-          ${exam.introVideoUrl ? `<button class="small-btn secondary-btn" data-exam-video-remove="${exam._id}">Remover vídeo</button>` : ''}
-        </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
 
+    const setPanel = (selector, key, open) => {
+      const panel = el.querySelector(selector);
+      if (!panel) return;
+      panel.classList.toggle('hidden', !open);
+      if (open) openExamPanels.add(key); else openExamPanels.delete(key);
+    };
+    openExamPanels.forEach((key) => {
+      const [kind, id] = key.split(':');
+      const panel = el.querySelector(kind === 'welcome' ? `[data-welcome-form="${id}"]` : `[data-settings-form="${id}"]`);
+      if (panel) panel.classList.remove('hidden'); else openExamPanels.delete(key);
+    });
     el.querySelectorAll('[data-exam-welcome]').forEach((btn) => btn.addEventListener('click', () => {
-      el.querySelector(`[data-welcome-form="${btn.dataset.examWelcome}"]`).classList.toggle('hidden');
+      const id = btn.dataset.examWelcome;
+      setPanel(`[data-welcome-form="${id}"]`, `welcome:${id}`, !openExamPanels.has(`welcome:${id}`));
     }));
     el.querySelectorAll('[data-welcome-cancel]').forEach((btn) => btn.addEventListener('click', () => {
-      el.querySelector(`[data-welcome-form="${btn.dataset.welcomeCancel}"]`).classList.add('hidden');
+      setPanel(`[data-welcome-form="${btn.dataset.welcomeCancel}"]`, `welcome:${btn.dataset.welcomeCancel}`, false);
     }));
     el.querySelectorAll('[data-welcome-form]').forEach((form) => form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
@@ -695,10 +744,11 @@
       loadExams();
     }));
     el.querySelectorAll('[data-exam-settings]').forEach((btn) => btn.addEventListener('click', () => {
-      el.querySelector(`[data-settings-form="${btn.dataset.examSettings}"]`).classList.toggle('hidden');
+      const id = btn.dataset.examSettings;
+      setPanel(`[data-settings-form="${id}"]`, `settings:${id}`, !openExamPanels.has(`settings:${id}`));
     }));
     el.querySelectorAll('[data-settings-cancel]').forEach((btn) => btn.addEventListener('click', () => {
-      el.querySelector(`[data-settings-form="${btn.dataset.settingsCancel}"]`).classList.add('hidden');
+      setPanel(`[data-settings-form="${btn.dataset.settingsCancel}"]`, `settings:${btn.dataset.settingsCancel}`, false);
     }));
     el.querySelectorAll('[data-settings-form]').forEach((form) => {
       const autoSel = form.querySelector('[name="autoApproval"]');
@@ -737,14 +787,15 @@
       loadExams();
     }));
     el.querySelectorAll('[data-exam-video-remove]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('Remover o vídeo próprio desta prova? Ela passa a usar o vídeo padrão da plataforma.')) return;
       await api(`/exams/${btn.dataset.examVideoRemove}/intro-video`, { method: 'DELETE' });
       loadExams();
     }));
     el.querySelectorAll('[data-exam-video-url]').forEach((btn) => btn.addEventListener('click', async () => {
       const examId = btn.dataset.examVideoUrl;
-      const url = prompt('Cole o link direto do vídeo (http/https) — fica salvo mesmo depois de um novo deploy:');
-      if (url === null) return;
-      const data = await api(`/exams/${examId}`, { method: 'PUT', body: JSON.stringify({ introVideoUrl: url.trim() }) });
+      const url = el.querySelector(`[data-exam-video-link="${examId}"]`).value.trim();
+      if (!url) { alert('Cole o link direto do vídeo (http/https) no campo ao lado.'); return; }
+      const data = await api(`/exams/${examId}`, { method: 'PUT', body: JSON.stringify({ introVideoUrl: url }) });
       if (!data.success) { alert(data.message || 'Erro ao salvar link.'); return; }
       loadExams();
     }));

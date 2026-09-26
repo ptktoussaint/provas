@@ -75,31 +75,45 @@
         <div class="panel-section">
           <div class="panel-section-header"><h3>Configurações da plataforma</h3></div>
           <form id="settings-form" class="inline-form">
-            <div class="field-group" style="flex:2;min-width:220px">
+            <div class="field-group" style="flex:1;min-width:240px">
               <label>Nome da plataforma</label>
               <input id="settings-platform-name" placeholder="Ex.: PROVA TCEL BOMBEIROS SUL FLUXO RP" />
             </div>
-            <button type="submit" class="small-btn" style="align-self:flex-end">Salvar</button>
+            <button type="submit" class="small-btn">Salvar</button>
           </form>
 
-          <form id="settings-intro-video-form" class="inline-form" style="margin-top:14px">
-            <div class="field-group" style="flex:2;min-width:260px">
-              <label>Vídeo de boas-vindas padrão (usado quando a prova não tem um próprio)</label>
-              <input type="file" id="settings-intro-video-file" accept="video/mp4,video/webm,video/ogg" />
-              <p class="hint" id="settings-intro-video-status" style="margin:4px 0 0"></p>
+          <div class="media-block">
+            <div class="media-block-head">
+              <div>
+                <strong>🎬 Vídeo de boas-vindas padrão</strong>
+                <span class="media-block-sub">Aparece nas provas que não têm vídeo próprio.</span>
+              </div>
+              <span class="media-status" id="settings-intro-video-status"></span>
             </div>
-            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Enviar vídeo</button>
-            <button type="button" class="small-btn secondary-btn" id="remove-settings-intro-video-btn" style="align-self:flex-end">Remover</button>
-          </form>
-          <form id="settings-intro-video-url-form" class="inline-form" style="margin-top:8px">
-            <div class="field-group" style="flex:2;min-width:260px">
-              <label>...ou cole o link direto do vídeo (fica salvo mesmo depois de um novo deploy)</label>
-              <input id="settings-intro-video-url" placeholder="https://..." />
-              <p class="hint" id="settings-video-preview-status" style="margin:4px 0 0"></p>
+            <div class="media-grid">
+              <form id="settings-intro-video-form" class="media-option">
+                <label>Enviar arquivo (MP4, WebM ou OGG)</label>
+                <div class="media-row">
+                  <input type="file" id="settings-intro-video-file" accept="video/mp4,video/webm,video/ogg" />
+                  <button type="submit" class="small-btn secondary-btn">Enviar</button>
+                </div>
+                <span class="media-note">Arquivo enviado some quando o site é atualizado (deploy).</span>
+              </form>
+              <form id="settings-intro-video-url-form" class="media-option">
+                <label>…ou colar o link direto do vídeo</label>
+                <div class="media-row">
+                  <input id="settings-intro-video-url" placeholder="https://..." />
+                  <button type="submit" class="small-btn secondary-btn">Salvar link</button>
+                </div>
+                <span class="media-note">O link continua salvo depois de um deploy.</span>
+                <span class="media-note" id="settings-video-preview-status"></span>
+              </form>
             </div>
-            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Salvar link</button>
-          </form>
-          <video id="settings-video-preview" controls style="max-width:280px;max-height:160px;border-radius:8px;margin-top:6px;display:none"></video>
+            <div class="media-foot">
+              <video id="settings-video-preview" controls style="display:none"></video>
+              <button type="button" class="small-btn secondary-btn media-remove" id="remove-settings-intro-video-btn">Remover vídeo padrão</button>
+            </div>
+          </div>
         </div>
 
         <div class="panel-section">
@@ -129,44 +143,70 @@
                 <input type="color" id="theme-card-color" value="#2a0e0e" />
               </div>
             </div>
-            <button type="submit" class="small-btn">Salvar cores</button>
-            <button type="button" class="small-btn secondary-btn" id="theme-reset-btn">Restaurar padrão</button>
+            <div class="form-actions">
+              <button type="submit" class="small-btn">Salvar cores</button>
+              <button type="button" class="small-btn secondary-btn" id="theme-reset-btn">Restaurar padrão</button>
+            </div>
           </form>
 
-          <form id="settings-background-form" class="inline-form" style="margin-top:18px">
-            <div class="field-group" style="flex:2;min-width:220px">
-              <label>Imagem de fundo do site</label>
-              <input type="file" id="settings-background-file" accept="image/png,image/jpeg,image/webp" />
+          <div class="media-block">
+            <div class="media-block-head">
+              <div>
+                <strong>🖼 Imagem de fundo do site</strong>
+                <span class="media-block-sub">PNG, JPG ou WebP.</span>
+              </div>
             </div>
-            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Enviar</button>
-            <button type="button" class="small-btn secondary-btn" id="remove-background-btn" style="align-self:flex-end">Remover</button>
-          </form>
-          <form id="settings-background-url-form" class="inline-form" style="margin-top:8px">
-            <div class="field-group" style="flex:2;min-width:220px">
-              <label>...ou cole o link direto da imagem (fica salvo mesmo depois de um novo deploy)</label>
-              <input id="settings-background-url" placeholder="https://..." />
-              <p class="hint" id="settings-background-preview-status" style="margin:4px 0 0"></p>
+            <div class="media-grid">
+              <form id="settings-background-form" class="media-option">
+                <label>Enviar arquivo</label>
+                <div class="media-row">
+                  <input type="file" id="settings-background-file" accept="image/png,image/jpeg,image/webp" />
+                  <button type="submit" class="small-btn secondary-btn">Enviar</button>
+                </div>
+              </form>
+              <form id="settings-background-url-form" class="media-option">
+                <label>…ou colar o link direto da imagem</label>
+                <div class="media-row">
+                  <input id="settings-background-url" placeholder="https://..." />
+                  <button type="submit" class="small-btn secondary-btn">Salvar link</button>
+                </div>
+                <span class="media-note" id="settings-background-preview-status"></span>
+              </form>
             </div>
-            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Salvar link</button>
-          </form>
-          <img id="settings-background-preview" alt="Pré-visualização da imagem de fundo" style="max-width:220px;max-height:120px;border-radius:8px;margin-top:6px;display:none" />
+            <div class="media-foot">
+              <img id="settings-background-preview" alt="Pré-visualização da imagem de fundo" style="display:none" />
+              <button type="button" class="small-btn secondary-btn media-remove" id="remove-background-btn">Remover imagem de fundo</button>
+            </div>
+          </div>
 
-          <form id="settings-logo-form" class="inline-form" style="margin-top:14px">
-            <div class="field-group" style="flex:2;min-width:220px">
-              <label>Logo</label>
-              <input type="file" id="settings-logo-file" accept="image/png,image/jpeg,image/webp" />
+          <div class="media-block">
+            <div class="media-block-head">
+              <div>
+                <strong>🏷 Logo</strong>
+                <span class="media-block-sub">PNG, JPG ou WebP.</span>
+              </div>
             </div>
-            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Enviar logo</button>
-          </form>
-          <form id="settings-logo-url-form" class="inline-form" style="margin-top:8px">
-            <div class="field-group" style="flex:2;min-width:220px">
-              <label>...ou cole o link direto da logo (fica salvo mesmo depois de um novo deploy)</label>
-              <input id="settings-logo-url" placeholder="https://..." />
-              <p class="hint" id="settings-logo-preview-status" style="margin:4px 0 0"></p>
+            <div class="media-grid">
+              <form id="settings-logo-form" class="media-option">
+                <label>Enviar arquivo</label>
+                <div class="media-row">
+                  <input type="file" id="settings-logo-file" accept="image/png,image/jpeg,image/webp" />
+                  <button type="submit" class="small-btn secondary-btn">Enviar logo</button>
+                </div>
+              </form>
+              <form id="settings-logo-url-form" class="media-option">
+                <label>…ou colar o link direto da logo</label>
+                <div class="media-row">
+                  <input id="settings-logo-url" placeholder="https://..." />
+                  <button type="submit" class="small-btn secondary-btn">Salvar link</button>
+                </div>
+                <span class="media-note" id="settings-logo-preview-status"></span>
+              </form>
             </div>
-            <button type="submit" class="small-btn secondary-btn" style="align-self:flex-end">Salvar link</button>
-          </form>
-          <img id="settings-logo-preview" alt="Pré-visualização da logo" style="max-width:220px;max-height:120px;border-radius:8px;margin-top:6px;display:none" />
+            <div class="media-foot">
+              <img id="settings-logo-preview" alt="Pré-visualização da logo" style="display:none" />
+            </div>
+          </div>
         </div>
 
         <div class="panel-section">
@@ -196,9 +236,9 @@
                 <option value="DAFP">DAFP</option>
               </select>
             </div>
-            <button type="submit" class="small-btn" style="align-self:flex-end">Criar prova</button>
+            <button type="submit" class="small-btn">Criar prova</button>
           </form>
-          <p class="hint" style="margin-top:0">O vídeo de boas-vindas específico desta prova é enviado depois de criada, na própria linha da lista abaixo (sem vídeo próprio, usa o vídeo padrão da plataforma configurado acima).</p>
+          <p class="hint" style="margin-top:0">Depois de criada, cada prova tem três áreas: <strong>Questões</strong> (banco), <strong>🎬 Boas-vindas e vídeo</strong> (textos da tela inicial e vídeo próprio — sem vídeo próprio, usa o padrão configurado acima) e <strong>⚙ Integração / Resultado</strong>.</p>
           <p class="error-msg" id="exams-tcel-warning" style="margin-top:0"></p>
           <div id="exams-list" class="list-plain"></div>
         </div>

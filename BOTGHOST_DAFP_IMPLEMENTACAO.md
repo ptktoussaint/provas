@@ -9,7 +9,9 @@ Referência técnica **completa e atual** para configurar **manualmente** no Bot
 > - IDs fictícios de cargos usados nos exemplos:
 >   - `810000000000000001` = **Bombeiros Militares da Fluxo** (Role base);
 >   - `810000000000000002` = **Mérito em Proficiência**;
->   - `810000000000000003` = **Aprovado Prova Aspirante**.
+>   - `810000000000000003` = **Aprovado Prova Aspirante**;
+>   - `810000000000000004` = **Aprovado Prova Capitão** (seção K).
+> - A Role `1261488723615420517` (quem pode usar **VERIFICAR NOTA**, seção K) é **real**, informada pelo dono do servidor.
 
 ---
 
@@ -612,7 +614,9 @@ Nos outros resultados, a única diferença é o bloco de cargos, conforme a tabe
   - `roleAction2Enabled = "false"` e `roleAction3Enabled = "false"`;
   - legado: `applyRole = "false"`, `roleId = ""`.
 
-Mensagem pronta real (`data.message`), modelo **"Resultado DAFP (canal)"**:
+> **Resultado DAFP público = Embed montado no BotGhost + botão `VERIFICAR NOTA` (seção K).** O BotGhost monta o Embed com os campos separados acima (`examName`, `supervisorMention`, `studentMention`, `score`, `maxScore`, `resultStatus`). A mensagem pronta abaixo (`data.message`) continua vindo no `claim`, mas **não é obrigatória** para o resultado DAFP.
+
+Mensagem pronta real (`data.message`), modelo **"Resultado DAFP (canal)"** (opcional para o DAFP):
 ```json
 {
   "content": "",
@@ -643,14 +647,14 @@ Mensagem pronta real (`data.message`), modelo **"Resultado DAFP (canal)"**:
 1. se `roleAction1Enabled = "true"` → **adicionar** `roleAction1RoleId` ao membro `roleAction1MemberDiscordId`;
 2. se `roleAction2Enabled = "true"` → **adicionar** `roleAction2RoleId` ao mesmo membro;
 3. se `roleAction3Enabled = "true"` → **adicionar** `roleAction3RoleId` ao mesmo membro;
-4. **publicar** a mensagem:
+4. **publicar** o resultado — **Embed montado no BotGhost + botão `VERIFICAR NOTA`** (seção K):
    - `action = "send"` → nova mensagem no `channelId`;
-   - `action = "edit"` → editar o `messageId` no `channelId`;
-5. confirmar com `ack` **com o `messageId`** da mensagem.
+   - `action = "edit"` → editar o `messageId` no `channelId` (seção K.6);
+5. confirmar com `ack` **com o `messageId`** da mensagem publicada.
 
 **Resultado excluído antes de publicar:** o aviso de resultado é cancelado (nada aparece no canal). A Role base volta pelo aviso de devolução (3c).
 
-**Edições depois da primeira entrega** (`action = "edit"`): as posições 1–3 vêm desligadas. O BotGhost só edita a mensagem.
+**Edições depois da primeira entrega** (`action = "edit"`): as posições 1–3 vêm desligadas. O BotGhost só edita a mensagem (seção K.6).
 
 ### 3c. Devolução da Role base — `dafp_base_restore` (`DAFP_FINISHED` sem mensagem)
 Criado **em toda** saída de "em andamento" (seção E.1), independente de haver mensagem ou resultado. Resposta real do claim (prova iniciada e **encerrada pelo admin** — cancelamento):
@@ -967,9 +971,10 @@ O evento recebe `{tcel_notification_id}` e `{tcel_notification_kind}` e faz:
    1. se `roleAction1Enabled = "true"` → **adicionar** `roleAction1RoleId` (Role base) ao `roleAction1MemberDiscordId`;
    2. se `roleAction2Enabled = "true"` → **adicionar** `roleAction2RoleId` (cargo de aprovado) ao `roleAction2MemberDiscordId`;
    3. se `roleAction3Enabled = "true"` → **adicionar** `roleAction3RoleId` (Mérito em Proficiência) ao `roleAction3MemberDiscordId`;
-   4. se `publishMessage = "true"` → publicar a mensagem pronta:
+   4. se `publishMessage = "true"` → publicar o **Embed do resultado com o botão `VERIFICAR NOTA`**, montado no BotGhost com os campos do `claim` (**seção K**):
       - `action = "send"` → nova mensagem no `channelId`;
-      - `action = "edit"` → editar o `messageId` no `channelId`;
+      - `action = "edit"` → editar o `messageId` no `channelId` (seção K.6);
+      - se `publishMessage = "false"` (aviso `dafp_base_restore`): **nada** é publicado, sem Embed e sem botão;
    5. `ack`:
       - com mensagem: `{ "leaseToken": "…", "outcome": "delivered", "messageId": "<ID da mensagem>", "channelId": "<canal>" }`;
       - sem mensagem (`publishMessage = "false"`): `{ "leaseToken": "…", "outcome": "delivered" }`;
@@ -1003,7 +1008,186 @@ FIM       aluno termina / tempo esgota (inclui abandono) / admin encerra /
           → se houver resultado: site calcula nota, aprovação e perfectScore
             (uma vez) → webhook → claim (DAFP_FINISHED, publishMessage "true")
             → ADD Role base → [ADD aprovado] → [ADD Mérito]
-            → publica o resultado → ack (com messageId)
+            → publica o Embed "RESULTADO DA PROVA" + botão VERIFICAR NOTA
+            → ack (com messageId)
+DEPOIS    alguém clica em VERIFICAR NOTA → só BotGhost/Discord (seção K):
+          confere a Role 1261488723615420517 → edita a própria mensagem
+          acrescentando "NOTA CONFERIDA POR". Nenhuma chamada ao site.
 FALHA     BotGhost/Discord fora → o aviso fica na fila (lastError); o site
           repete e a reconciliação (5 min) garante a devolução até o ack
 ```
+
+---
+
+## K. RESULTADO DAFP — EMBED + VERIFICAR NOTA
+
+Vale **só** para o grupo **DAFP** (Aspirante, Segundo Tenente, Primeiro Tenente, Capitão e Major). O `/provas-tcel` e o resultado TCEL **não mudam**: continuam com a mensagem pronta de sempre, sem este Embed e sem este botão.
+
+**Divisão de responsabilidades**
+
+| Quem | Faz |
+|---|---|
+| **Site** | calcula a nota e o resultado, entrega os campos pelo `claim`, controla os cargos, a fila e o `ack` |
+| **BotGhost** | monta o Embed e o botão `VERIFICAR NOTA` e publica no canal de resultados DAFP |
+| **BotGhost/Discord (depois de publicado)** | processa o clique em `VERIFICAR NOTA` e edita a mensagem, **sem** o site |
+
+### K.1 Quando publicar
+Só quando o `claim` responder `200` com:
+- `notificationActionType = "DAFP_FINISHED"`;
+- `publishMessage = "true"` (aviso `kind = result`, `templateKey = "dafp_result"`).
+
+O aviso **`dafp_base_restore`** (`publishMessage = "false"`) **nunca** publica Embed nem botão: só devolve a Role base (seção F.3c).
+
+### K.2 Campos do `claim` usados no Embed (todos separados, texto simples)
+Resposta real do `claim` (Capitão, 8/10, aprovado). Trechos: os demais campos da seção F.2 (legados, `roleActions`, `dafpBaseRole*` etc.) também vêm e foram omitidos aqui:
+```json
+{
+  "ok": true, "code": "claimed", "message": "Notificação reservada.",
+  "data": {
+    "notificationId": "6ab7974634d51b9594ebc5f3",
+    "kind": "result",
+    "leaseToken": "db3b8e20522b3972a31a417fab1b186f",
+    "leaseUntil": "2026-09-26T10:00:30.897Z",
+    "action": "send",
+    "channelId": "600000000000000009",
+    "messageId": "",
+    "templateKey": "dafp_result",
+    "notificationActionType": "DAFP_FINISHED",
+    "publishMessage": "true",
+    "sessionId": "6ab7974634d51b9594ebc5cf",
+    "attemptId": "6ab7974634d51b9594ebc5da",
+    "sessionStatus": "FINALIZADA",
+    "examId": "6ab7974634d51b9594ebc5b0",
+    "examSlug": "capitao",
+    "examName": "Capitão",
+    "examGroup": "DAFP",
+    "studentDiscordId": "700000000000000101",
+    "studentMention": "<@700000000000000101>",
+    "studentDisplayName": "Recruta Lima",
+    "studentAvatarUrl": "",
+    "supervisorDiscordId": "700000000000000202",
+    "supervisorMention": "<@700000000000000202>",
+    "supervisorDisplayName": "Cap Souza",
+    "score": "8",
+    "maxScore": "10",
+    "scoreText": "8/10",
+    "autoApproval": "true",
+    "passingScore": "7",
+    "resultStatus": "APROVADO",
+    "passed": "true",
+    "perfectScore": "false",
+    "finishedAt": "2026-09-26T09:58:30.864Z",
+    "finishedAtText": "26/09/2026, 06:58",
+    "finishReason": "FINALIZADA_PELO_ALUNO",
+    "resultChannelId": "600000000000000009",
+    "resultPublished": "false",
+    "roleActionsPhase": "FINISH",
+    "roleAction1Enabled": "true",
+    "roleAction1Type": "ADD",
+    "roleAction1RoleId": "810000000000000001",
+    "roleAction1MemberDiscordId": "700000000000000101",
+    "roleAction2Enabled": "true",
+    "roleAction2Type": "ADD",
+    "roleAction2RoleId": "810000000000000004",
+    "roleAction2MemberDiscordId": "700000000000000101",
+    "roleAction3Enabled": "false",
+    "roleAction3Type": "",
+    "roleAction3RoleId": "",
+    "roleAction3MemberDiscordId": "",
+    "message": "(...)", "native": "(...)", "discordBodyJson": "(...)"
+  }
+}
+```
+
+| No Embed | Campo do `claim` | Exemplo real |
+|---|---|---|
+| Título | fixo: `RESULTADO DA PROVA` | RESULTADO DA PROVA |
+| **NOME DA PROVA** | `examName` | Capitão |
+| **AVALIADOR** | `supervisorMention` (menção pelo ID; **não** usar só `supervisorDisplayName`) | <@700000000000000202> |
+| **ALUNO** | `studentMention` (menção pelo ID; **não** usar só `studentDisplayName`) | <@700000000000000101> |
+| **RESULTADO** | `score` + " pontos / " + `maxScore` + " pontos" | 8 pontos / 10 pontos |
+| **STATUS** | `resultStatus` | APROVADO |
+
+- **Onde publicar:** `channelId`. É o canal próprio da prova (`resultChannelId`) ou, se ela não tiver, o **canal padrão de resultados DAFP** da aba Integração BotGhost.
+- **Valores de `resultStatus`:**
+  - `APROVADO` e `REPROVADO`: resultados acadêmicos normais (prova com aprovação automática);
+  - `NAO_APLICAVEL`: a prova está **sem** aprovação automática, ou foi **encerrada pelo admin** (`finishReason = "ENCERRADA_PELO_ADMIN"`, cancelamento). Para esse caso, sugestão de texto no STATUS: "Nota registrada" ou, com `finishReason = "ENCERRADA_PELO_ADMIN"`, "Encerrada pelo admin". É só exibição; configure como preferir.
+- **`score` e `maxScore`** já vêm formatados: inteiros sem casas (`8`) e decimais com vírgula (`7,5`).
+- **Campos extras disponíveis** (se quiser usar): `scoreText` (`8/10`), `passed`, `passingScore`, `perfectScore`, `finishReason`, `finishedAtText` (horário de Brasília), `studentAvatarUrl` (miniatura), `examSlug`, `examId`.
+- **Cargos:** continuam nas posições `roleAction1..3` (seções E e F). **Nada muda** nos cargos.
+
+### K.3 Como montar a publicação no BotGhost
+Dentro do ramo `DAFP_FINISHED` do evento de webhook, na condição `publishMessage = "true"`, **depois** dos três blocos de cargo:
+
+1. Bloco que envia uma mensagem no canal `channelId` (no projeto já usamos **Send or Edit a Message**), com um **Embed**:
+   - **Título:** `RESULTADO DA PROVA`;
+   - **Campo 1:** nome `NOME DA PROVA`, valor = `examName`;
+   - **Campo 2:** nome `AVALIADOR`, valor = `supervisorMention`;
+   - **Campo 3:** nome `ALUNO`, valor = `studentMention`;
+   - **Campo 4:** nome `RESULTADO`, valor = `score` + ` pontos / ` + `maxScore` + ` pontos`;
+   - **Campo 5:** nome `STATUS`, valor = `resultStatus`.
+   - O valor de cada campo é a variável da resposta do seu bloco de `claim` (`…response.data.examName` etc.). O nome do bloco é escolha sua.
+   - Cor, miniatura, rodapé e ordem visual: livres.
+2. **Um botão** nessa mensagem:
+   - rótulo **`VERIFICAR NOTA`**;
+   - ID recomendado (custom ID), se o BotGhost pedir um: **`dafp_verificar_nota`**. É fixo e igual em todos os resultados, porque o botão sempre age na **própria mensagem** em que está. Ele serve só para o BotGhost distinguir este botão dos outros. **O site nunca recebe nem processa esse ID.**
+3. Guarde o **ID da mensagem** publicada, na variável opcional do bloco, como já é feito no painel do `/provatcel`.
+4. `ack`:
+   ```json
+   { "leaseToken": "<data.leaseToken>", "outcome": "delivered", "messageId": "<ID da mensagem publicada>", "channelId": "<data.channelId>" }
+   ```
+   Resposta real: `{"ok": true, "code": "acked", "message": "Entrega confirmada.", "data": {"notificationId": "6ab7974634d51b9594ebc5f3", "messageId": "910000000000000077", "status": "delivered", "displayText": "Entrega confirmada."}}`
+
+**O `ack` serve só para confirmar a publicação original.** Ele não cria nenhuma dependência do botão com o site.
+
+### K.4 O botão `VERIFICAR NOTA` (100% BotGhost/Discord)
+**Quem pode:** só quem tem a Role **`1261488723615420517`**. A verificação é feita **no BotGhost**, com os cargos de quem clicou, e o site **não** valida nada.
+
+**O que o BotGhost faz ao clique** (ações ligadas ao botão):
+1. **Condição por cargo:** o usuário que clicou tem a Role `1261488723615420517`?
+2. **NÃO tem:**
+   - responder **em privado** (resposta escondida, **Hide Replies** ligado), por exemplo: "⛔ Você não tem permissão para conferir esta nota.";
+   - **não** editar a mensagem do resultado.
+3. **TEM:** **editar a própria mensagem** do resultado (a mensagem onde está o botão):
+   - manter **todo** o Embed como está: título e os 5 campos, com os **mesmos valores**;
+   - acrescentar **um** campo: nome `NOTA CONFERIDA POR`, valor = menção de quem clicou, `<@ID_DO_USUARIO_QUE_CLICOU>`;
+   - manter o botão (ou desativá-lo, se preferir que a conferência seja registrada uma vez só).
+
+**Variáveis do BotGhost usadas no clique** (todas da própria interação, nenhuma do site):
+- **ID de quem clicou:** `{user_id}`, a mesma variável já usada neste projeto como "quem clicou" (ver BOTGHOST-MONTAGEM.md). A menção fica `<@{user_id}>`;
+- **Cargos de quem clicou:** use a **condição por cargo** do BotGhost, que verifica os cargos do usuário da interação. Não é preciso nenhuma variável do site;
+- **Mensagem a editar:** a mensagem do próprio botão, pela opção do bloco de editar a mensagem da interação.
+
+**Não faça no clique:**
+- **nenhuma** chamada ao site: nada de `/notifications/…/claim`, `/notifications/…/ack`, `/dafp/results`, `/dafp/sessions` ou qualquer outra rota;
+- **nenhum** `claim` ou `ack`: a edição feita pelo botão **não** faz parte da fila;
+- nenhum registro no site: a própria mensagem do Discord é o registro visual da conferência.
+
+**Por isso o botão funciona com o Render dormindo, em repouso, fora do ar ou demorando para iniciar:** o clique usa só a interação do Discord, a mensagem existente e as funções do BotGhost.
+
+### K.5 Pontos a CONFIRMAR no editor do BotGhost (não dá para testar do lado do site)
+- **Manter o conteúdo na edição.** No Discord, editar um Embed **substitui** o Embed inteiro. O bloco de edição precisa repetir o título e os 5 campos com os mesmos valores, mais o campo novo.
+  - Confirme que, dentro das ações do botão, os valores da resposta do `claim` (`…response.data.examName`, `supervisorMention`, `studentMention`, `score`, `maxScore`, `resultStatus`) **continuam disponíveis**, inclusive depois de o bot reiniciar e dias depois da publicação.
+  - Se o BotGhost **não** mantiver esses valores no clique, **não edite a mensagem** (apagaria o resultado). Responda em privado que não foi possível registrar a conferência e avise: buscaremos outra forma, **sem** depender do site no clique.
+- **Condição por cargo:** confirme o nome exato da condição de cargo no seu editor e teste com uma conta **sem** a Role (precisa receber a resposta privada, e a mensagem precisa ficar igual).
+- Teste tudo primeiro num **canal de teste**.
+
+### K.6 Edições posteriores do resultado (vindas do site)
+A fila pode mandar um `DAFP_FINISHED` com `action = "edit"` para a mesma mensagem, quando o admin muda o resultado:
+
+| `templateKey` | Quando | O que o BotGhost faz |
+|---|---|---|
+| `dafp_result` | ajuste no admin (ex.: prova oral lançada, nota ajustada) | **remontar o mesmo Embed** com os valores **atuais** do `claim`, mantendo o botão, e editar `messageId` no `channelId`. Posições de cargo vêm **desligadas**. `ack` com o mesmo `messageId`. |
+| `result_removed` | resultado **excluído** depois de publicado | editar `messageId` com a mensagem pronta `data.message` (texto "Resultado removido pelo admin"), **sem** Embed e **sem** botão. `ack` com o mesmo `messageId`. |
+
+Real, edição (`dafp_result`): `action = "edit"`, `messageId = "910000000000000077"`, `channelId = "600000000000000009"`, `scoreText = "8/10"`, `resultStatus = "APROVADO"`, `roleAction1Enabled = "false"`, `roleAction2Enabled = "false"`.
+
+Real, excluído depois de publicado (`result_removed`): `action = "edit"`, `messageId = "910000000000000077"`, `data.message.content = "~~Prova finalizada: <@700000000000000101> — Prova: Capitão~~\nResultado removido pelo admin."`; os campos de nota vêm vazios.
+
+**Atenção:** o site **não** guarda quem conferiu. Numa edição `dafp_result`, rara porque só acontece quando o admin muda o resultado, o Embed é remontado **sem** o campo `NOTA CONFERIDA POR`, e a conferência precisa ser clicada de novo.
+
+### K.7 Resumo
+- **Publicar:** `claim` 200 → `DAFP_FINISHED` + `publishMessage = "true"` → cargos 1–3 → Embed + botão `VERIFICAR NOTA` → `ack` com `messageId`.
+- **`dafp_base_restore`:** só o cargo, **sem** Embed e **sem** botão, `ack` sem `messageId`.
+- **Clique:** só BotGhost/Discord. Tem a Role `1261488723615420517`? Sim → edita a mensagem e acrescenta `NOTA CONFERIDA POR <@quem clicou>`. Não → resposta privada. **Zero** chamadas ao site, nenhum `claim` e nenhum `ack`.
+- **O site não tem rota de "verificar nota"**, e isso está coberto por teste automatizado. Não crie nenhuma chamada nova para isso.

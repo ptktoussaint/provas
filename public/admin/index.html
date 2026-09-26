@@ -408,7 +408,9 @@
             </div>
             <h4 class="discord-subtitle">Provas DAFP (/provas-dafp)</h4>
             <div class="discord-form-grid">
-              <div class="field-group"><label>Professores que podem gerar provas DAFP</label><input id="ig-ops-dafp" placeholder="IDs de usuários" /></div>
+              <div class="field-group"><label>Role de Professor DAFP (ID do cargo)</label><input id="ig-dafp-professor-role" placeholder="ID do cargo (ou &lt;@&amp;ID&gt;)" />
+                <p class="hint" style="margin-top:4px">Quem tiver esta Role no Discord pode usar o /provas-dafp. É o ID de um <strong>cargo</strong>, não de usuários.</p>
+                <p class="error-msg" id="ig-dafp-professor-legacy" style="margin:4px 0 0"></p></div>
               <div class="field-group"><label>Canal padrão de resultados DAFP (cada prova pode ter o seu)</label><input id="ig-dafp-result-channel" placeholder="ID do canal" /></div>
               <div class="field-group"><label>Canal do /provas-dafp (opcional: se preenchido, só aceita pedidos desse canal)</label><input id="ig-dafp-command-channel" placeholder="ID do canal" /></div>
             </div>

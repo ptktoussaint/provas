@@ -91,7 +91,12 @@
     $('ig-announce-channel').value = c.promotion.announceChannelId || '';
     $('ig-announce-role').value = c.promotion.announceRoleId || '';
     $('ig-nickname-template').value = c.promotion.nicknameTemplate || '';
-    $('ig-ops-dafp').value = (c.operatorIds.dafp || []).join(', ');
+    $('ig-dafp-professor-role').value = (c.dafp && c.dafp.professorRoleId) || '';
+    // Configuração antiga com vários IDs: não dá para saber qual é a Role.
+    const legacy = (c.dafp && c.dafp.legacyOperatorIds) || [];
+    $('ig-dafp-professor-legacy').textContent = !c.dafp.professorRoleId && legacy.length > 1
+      ? `⚠ Configuração antiga com ${legacy.length} IDs (${legacy.join(', ')}). Informe aqui o ID da Role de Professor DAFP e salve.`
+      : '';
     $('ig-dafp-result-channel').value = (c.dafp && c.dafp.resultChannelId) || '';
     $('ig-dafp-command-channel').value = (c.dafp && c.dafp.commandChannelId) || '';
     $('ig-dafp-base-role').value = (c.dafp && c.dafp.baseRoleId) || '';
@@ -105,8 +110,9 @@
     const msg = $('ig-config-msg');
     msg.textContent = 'Salvando...';
     const body = {
-      operatorIds: { generate: $('ig-ops-generate').value, results: $('ig-ops-results').value, promote: $('ig-ops-promote').value, dafp: $('ig-ops-dafp').value },
+      operatorIds: { generate: $('ig-ops-generate').value, results: $('ig-ops-results').value, promote: $('ig-ops-promote').value },
       dafp: {
+        professorRoleId: $('ig-dafp-professor-role').value,
         resultChannelId: $('ig-dafp-result-channel').value,
         commandChannelId: $('ig-dafp-command-channel').value,
         baseRoleId: $('ig-dafp-base-role').value,

@@ -36,7 +36,7 @@ beforeEach(async () => {
   await db.reset();
   envRef.current = H.testEnv();
   await H.saveDefaultConfig({
-    operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR, dafp: H.OPERATOR },
+    operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR },
     dafp: { resultChannelId: DAFP_CHANNEL, baseRoleId: BASE, perfectScoreRoleId: MERIT },
   });
   require('../botghost/configStore').invalidate();
@@ -50,7 +50,7 @@ let seq = 0;
 async function dafpResult(correct, student = STUDENT) {
   seq += 1;
   const r = await api.call('POST', '/dafp/rooms', {
-    ...H.actorFields(), student, studentDisplayName: 'Recruta Lima', supervisorDiscordId: EVALUATOR, supervisorDisplayName: 'Cap Souza',
+    ...H.dafpActorFields(), student, studentDisplayName: 'Recruta Lima', supervisorDiscordId: EVALUATOR, supervisorDisplayName: 'Cap Souza',
     examSlug: 'capitao', idempotencyKey: `embed-${seq}`,
   });
   assert.equal(r.status, 201, JSON.stringify(r.body));
@@ -195,7 +195,7 @@ test('6: separação — DAFP fora das rotas TCEL; TCEL fora de /dafp/results', 
   const cands = (await api.call('GET', '/promotion-candidates', H.actorFields())).body.data;
   assert.equal(cands.total, '1', 'promoção TCEL só vê o TCEL');
 
-  const dafpList = (await api.call('GET', '/dafp/results', H.actorFields())).body.data;
+  const dafpList = (await api.call('GET', '/dafp/results', H.dafpActorFields())).body.data;
   assert.equal(dafpList.total, '1');
   assert.equal(dafpList.items[0].attemptId, String(attempt._id));
   assert.equal(dafpList.items[0].examGroup, 'DAFP');
@@ -217,7 +217,7 @@ test('7: publicação — ACK com o messageId da mensagem montada pelo BotGhost 
   const saved = await M.ExamAttempt.findById(attempt._id).lean();
   assert.equal(saved.discordSync.messageId, '910000000000000077');
   assert.equal(saved.discordSync.channelId, DAFP_CHANNEL);
-  const s = (await api.call('GET', `/dafp/sessions/${roomId}`, H.actorFields())).body.data;
+  const s = (await api.call('GET', `/dafp/sessions/${roomId}`, H.dafpActorFields())).body.data;
   assert.equal(s.resultPublished, 'true');
 });
 

@@ -17,6 +17,8 @@ const ANNOUNCE = '1396947587235578017';
 const ADD1 = '1231023397069258844';
 const ADD2 = '1057349963203498105';
 const REM = '1057349976482664569';
+const PROFESSOR_ROLE = '820000000000000001'; // Role de Professor DAFP
+const OTHER_ROLE = '820000000000000002';
 const KEY = 'chave-de-teste-com-mais-de-32-caracteres-0123456789';
 const WEBHOOK_URL = 'https://api.botghost.com/webhook/123456789012345678/evento_tcel';
 
@@ -93,6 +95,12 @@ function actorFields(userId = OPERATOR, extra = {}) {
   return { guildId: GUILD, actorDiscordId: userId, channelId: PANEL, actorDisplayName: 'Operador Teste', ...extra };
 }
 
+// /provas-dafp: além de quem executou, os cargos dele (como o BotGhost
+// atesta). Por padrão, alguém com a Role de Professor DAFP e outro cargo.
+function dafpActorFields(userId = OPERATOR, extra = {}) {
+  return actorFields(userId, { actorRoleIds: `<@&${OTHER_ROLE}> <@&${PROFESSOR_ROLE}>`, ...extra });
+}
+
 async function saveDefaultConfig(overrides = {}) {
   const configStore = require('../botghost/configStore');
   const { update, errors } = configStore.validateConfig({
@@ -100,6 +108,7 @@ async function saveDefaultConfig(overrides = {}) {
     channels: { panel: PANEL, results: RESULTS, test: TEST_CHANNEL },
     promotion: { addRoleIds: `${ADD1},${ADD2}`, removeRoleIds: REM, announceChannelId: ANNOUNCE, announceRoleId: ADD1, nicknameTemplate: '『TCEL•B』{nome} | {idRP}' },
     ...overrides,
+    dafp: { professorRoleId: PROFESSOR_ROLE, ...(overrides.dafp || {}) },
   });
   if (errors.length) throw new Error(errors.join(' '));
   return configStore.saveConfig(update, 'teste');
@@ -149,6 +158,6 @@ function fakeWebhook() {
 const silentLog = { log() {}, warn() {}, error() {} };
 
 module.exports = {
-  setupDb, testEnv, startApi, actorFields, saveDefaultConfig, seedExam, takeExam, fakeWebhook, silentLog,
+  setupDb, testEnv, startApi, actorFields, dafpActorFields, PROFESSOR_ROLE, OTHER_ROLE, saveDefaultConfig, seedExam, takeExam, fakeWebhook, silentLog,
   GUILD, OPERATOR, OTHER_OPERATOR, STRANGER, PANEL, RESULTS, TEST_CHANNEL, ANNOUNCE, ADD1, ADD2, REM, KEY, WEBHOOK_URL,
 };

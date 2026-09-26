@@ -13,7 +13,9 @@ const integrationConfigSchema = new mongoose.Schema({
     generate: { type: [String], default: [] },
     results: { type: [String], default: [] },
     promote: { type: [String], default: [] },
-    // Fluxo DAFP (/provas-dafp): lista própria, separada da TCEL.
+    // LEGADO (não usado para autorizar): antes o /provas-dafp conferia o
+    // actorDiscordId nesta lista, mas o valor configurado é o ID de uma
+    // ROLE. Lido só para migrar para dafp.professorRoleId; limpo ao salvar.
     dafp: { type: [String], default: [] },
   },
   // Fluxo DAFP. Canal padrão dos resultados (cada prova pode sobrescrever)
@@ -21,6 +23,9 @@ const integrationConfigSchema = new mongoose.Schema({
   dafp: {
     resultChannelId: { type: String, default: null },
     commandChannelId: { type: String, default: null },
+    // ID da ROLE "Professor DAFP": pode usar o /provas-dafp quem tiver este
+    // cargo. O BotGhost atesta os cargos de quem executou (actorRoleIds).
+    professorRoleId: { type: String, default: null },
     // Cargos automáticos DAFP (globais): a Role base sai quando o aluno
     // INICIA a prova e volta quando ela termina; a de Mérito em
     // Proficiência é dada a quem tira a nota máxima.

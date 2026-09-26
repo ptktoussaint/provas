@@ -37,7 +37,7 @@ beforeEach(async () => {
   await db.reset();
   envRef.current = H.testEnv();
   await H.saveDefaultConfig({
-    operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR, dafp: H.OPERATOR },
+    operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR },
     dafp: { resultChannelId: DAFP_CHANNEL, baseRoleId: BASE, perfectScoreRoleId: MERIT },
   });
   require('../botghost/configStore').invalidate();
@@ -56,7 +56,7 @@ let seq = 0;
 async function createRoom(examSlug, student = STUDENT) {
   seq += 1;
   const r = await api.call('POST', '/dafp/rooms', {
-    ...H.actorFields(), student, supervisorDiscordId: EVALUATOR, examSlug, idempotencyKey: `roles-${seq}`,
+    ...H.dafpActorFields(), student, supervisorDiscordId: EVALUATOR, examSlug, idempotencyKey: `roles-${seq}`,
   });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.data.roomId;
@@ -91,7 +91,7 @@ async function ack(n, d, extra = {}) {
 test('1-3: criar sala não mexe em cargo; iniciar gera UMA remoção da Role base; refresh/reconexão não repetem', async () => {
   const roomId = await createRoom('aspirante');
   assert.equal(await M.Notification.countDocuments(), 0, 'sala criada: nenhuma ação de cargo');
-  const s0 = (await api.call('GET', `/dafp/sessions/${roomId}`, H.actorFields())).body.data;
+  const s0 = (await api.call('GET', `/dafp/sessions/${roomId}`, H.dafpActorFields())).body.data;
   assert.equal(s0.sessionStatus, 'CRIADA');
   assert.equal(s0.roleActionsPhase, '');
   assert.equal(s0.roleAction1Enabled, 'false');
@@ -105,7 +105,7 @@ test('1-3: criar sala não mexe em cargo; iniciar gera UMA remoção da Role bas
   assert.equal(await M.Notification.countDocuments({ kind: 'dafp_started' }), 1);
   assert.equal(await M.Notification.countDocuments(), 1);
 
-  const s1 = (await api.call('GET', `/dafp/sessions/${roomId}`, H.actorFields())).body.data;
+  const s1 = (await api.call('GET', `/dafp/sessions/${roomId}`, H.dafpActorFields())).body.data;
   assert.equal(s1.sessionStatus, 'EM_ANDAMENTO');
   assert.equal(s1.roleActionsPhase, 'START');
   assert.deepEqual(slots(s1), [`REMOVE ${BASE} ${STUDENT}`, '-', '-']);
@@ -166,7 +166,7 @@ test('4-6: reprovado só devolve a base; aprovado + cargo da prova; gabarito + M
     assert.equal(d.message.embeds[0].title, 'RESULTADO DA PROVA');
     assert.equal((await ack(n, d, { messageId: '910000000000000001', channelId: DAFP_CHANNEL })).body.code, 'acked');
 
-    const s = (await api.call('GET', `/dafp/sessions/${roomId}`, H.actorFields())).body.data;
+    const s = (await api.call('GET', `/dafp/sessions/${roomId}`, H.dafpActorFields())).body.data;
     assert.equal(s.perfectScore, k.perfect);
     assert.equal(s.finishReason, 'FINALIZADA_PELO_ALUNO');
     assert.deepEqual(slots(s), expected);
@@ -180,7 +180,7 @@ test('4-6: reprovado só devolve a base; aprovado + cargo da prova; gabarito + M
     assert.equal(edit.d.applyRole, 'false');
     await ack(edit.n, edit.d, { messageId: '910000000000000001' });
   }
-  const list = (await api.call('GET', '/dafp/results', { ...H.actorFields(), pageSize: '1' })).body.data;
+  const list = (await api.call('GET', '/dafp/results', { ...H.dafpActorFields(), pageSize: '1' })).body.data;
   assert.equal(list.resultPerfectScore, 'true', 'o mais recente é o 10/10');
 });
 
@@ -190,7 +190,7 @@ test('7-8: sem aprovação automática — gabarito ganha só base + Mérito; se
     [5, [`ADD ${BASE} ${STUDENT}`, '-', '-'], 'false'],
   ]) {
     await db.reset();
-    await H.saveDefaultConfig({ operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR, dafp: H.OPERATOR }, dafp: { resultChannelId: DAFP_CHANNEL, baseRoleId: BASE, perfectScoreRoleId: MERIT } });
+    await H.saveDefaultConfig({ operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR }, dafp: { resultChannelId: DAFP_CHANNEL, baseRoleId: BASE, perfectScoreRoleId: MERIT } });
     require('../botghost/configStore').invalidate();
     await dafpExam('Major', 'major', { auto: false });
     const roomId = await createRoom('major');

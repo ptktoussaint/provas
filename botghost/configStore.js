@@ -14,9 +14,16 @@ function toPlain(doc) {
   const ops = o.operatorIds || {};
   const ch = o.channels || {};
   const pr = o.promotion || {};
+  // Professor DAFP é uma ROLE. Configuração antiga (lista operatorIds.dafp)
+  // com UM único ID = era o ID da Role: vale até o admin salvar de novo.
+  // Com vários IDs não dá para saber qual é a Role: fica vazio (o painel avisa).
+  const legacyDafp = ops.dafp || [];
+  const professorRoleId = (o.dafp && o.dafp.professorRoleId) || (legacyDafp.length === 1 ? legacyDafp[0] : null);
   return {
-    operatorIds: { generate: ops.generate || [], results: ops.results || [], promote: ops.promote || [], dafp: ops.dafp || [] },
+    operatorIds: { generate: ops.generate || [], results: ops.results || [], promote: ops.promote || [] },
     dafp: {
+      professorRoleId,
+      legacyOperatorIds: (o.dafp && o.dafp.professorRoleId) ? [] : legacyDafp,
       resultChannelId: (o.dafp && o.dafp.resultChannelId) || null,
       commandChannelId: (o.dafp && o.dafp.commandChannelId) || null,
       baseRoleId: (o.dafp && o.dafp.baseRoleId) || null,
@@ -86,9 +93,9 @@ function validateConfig(body = {}) {
       generate: ids(ops.generate, 'Operadores que podem gerar provas', errors),
       results: ids(ops.results, 'Operadores que podem consultar notas', errors),
       promote: ids(ops.promote, 'Operadores que podem promover', errors),
-      dafp: ids(ops.dafp, 'Professores que podem gerar provas DAFP', errors),
     },
     dafp: {
+      professorRoleId: role((body.dafp || {}).professorRoleId, 'Role de Professor DAFP', errors),
       resultChannelId: channel((body.dafp || {}).resultChannelId, 'Canal padrão de resultados DAFP', errors),
       commandChannelId: channel((body.dafp || {}).commandChannelId, 'Canal do /provas-dafp', errors),
       baseRoleId: role((body.dafp || {}).baseRoleId, 'ID da Role obrigatória DAFP', errors),
@@ -123,7 +130,9 @@ function validateConfig(body = {}) {
 
 async function saveConfig(update, actor) {
   const doc = await IntegrationConfig.getOrCreate();
-  doc.operatorIds = update.operatorIds;
+  // A lista antiga de "professores DAFP" deixa de existir ao salvar: o
+  // acesso DAFP é pela Role (dafp.professorRoleId).
+  doc.operatorIds = { ...update.operatorIds, dafp: [] };
   doc.defaultExamId = update.defaultExamId || null;
   doc.channels = update.channels;
   doc.promotion = update.promotion;

@@ -35,6 +35,37 @@ Referência técnica **completa e atual** para configurar **manualmente** no Bot
 | `actorDiscordId` | ID de quem executou o comando (o professor) |
 | `channelId` | ID do canal onde o comando foi usado |
 | `actorDisplayName` | nome exibido de quem executou |
+| **`actorRoleIds`** | **só nas rotas `/dafp/*`, obrigatório:** os **cargos de quem executou** o comando (IDs ou menções `<@&ID>`). É por ele que o site confere a **Role de Professor DAFP** (seção 0.1). As rotas TCEL ignoram este campo |
+
+### 0.1 Quem pode usar o `/provas-dafp`: Role de Professor DAFP
+- **Configuração no site:** aba **Integração BotGhost → Provas DAFP → "Role de Professor DAFP (ID do cargo)"**. É o ID de **um cargo** do Discord, **não** uma lista de usuários. Aceita o ID ou a menção `<@&ID>`.
+- **Regra:** o pedido é aceito quando os cargos de quem executou (`actorRoleIds`) **incluem** essa Role.
+  - `actorDiscordId` continua sendo **o ID de quem executou** (vai para o registro e a chave de repetição). Ele **nunca** é comparado com o ID da Role.
+  - **Qual** Role é exigida é decidido **só no site**. O pedido informa apenas os cargos que a pessoa tem; ele não escolhe a Role a conferir.
+- **O que o BotGhost envia em `actorRoleIds`:** a variável do BotGhost com os **cargos de quem executou o comando/clicou**, escolhida no seletor de variáveis do bloco. Nenhum nome de variável é inventado aqui: use a que o seu editor oferece para os cargos do usuário da interação.
+  - Ela precisa trazer os **IDs** ou as **menções** (`<@&ID>`) dos cargos, **não** os nomes.
+  - Formatos aceitos: `"820000000000000001"`, `"820000000000000002,820000000000000001"`, `"<@&820000000000000002> <@&820000000000000001>"`, ou uma lista de textos `["820000000000000002","820000000000000001"]`.
+  - Separadores livres (vírgula, espaço, quebra de linha). IDs **como número** no JSON são recusados (`400`), como em todos os IDs.
+  - **Em GET** vai nos **URL Params**; **em POST**, no **Request Body**, junto com a identificação.
+- **Por que o site confia nesses cargos:**
+  - o site **não** fala com o Discord (não tem token de bot, por decisão do projeto);
+  - quem atesta os cargos é o **próprio BotGhost**, autenticado pela chave secreta (`Authorization: Bearer`), a mesma confiança já dada ao `actorDiscordId`;
+  - validar a Role direto no Discord exigiria o **token do bot no site**, o que este projeto **não** faz.
+  - **Recomendado no BotGhost:** colocar também uma **condição de cargo** (Role de Professor DAFP) antes de chamar o site, para quem não tem a Role receber a resposta na hora.
+- **Como testar a variável:** chame `GET /dafp/exams` no Request Builder com a identificação + `actorRoleIds`.
+  - Se voltar `403 operator_not_allowed`, olhe `data.rolesReceived`: é **quantos cargos o site conseguiu ler**.
+  - `"0"` = a variável veio vazia ou com **nomes** em vez de IDs/menções.
+
+Respostas reais:
+- **Sem a Role** (`403`, com a mensagem pronta "⛔ …" em `data.message` / `data.native` / `data.discordCallbackJson`, como toda negação):
+  ```json
+  {"ok": false, "code": "operator_not_allowed", "message": "Você não está autorizado a gerar provas DAFP: é preciso ter a Role de Professor DAFP.", "data": {"rolesReceived": "1", "message": "(...)", "native": "(...)", "discordBodyJson": "(...)", "discordCallbackJson": "(...)", "displayText": "Você não está autorizado a gerar provas DAFP: é preciso ter a Role de Professor DAFP."}}
+  ```
+- **`actorRoleIds` não enviado** (`400`):
+  ```json
+  {"ok": false, "code": "invalid_field", "message": "actorRoleIds obrigatório no /provas-dafp: envie os cargos de quem executou o comando (IDs ou menções).", "data": {"field": "actorRoleIds", "displayText": "actorRoleIds obrigatório no /provas-dafp: envie os cargos de quem executou o comando (IDs ou menções)."}}
+  ```
+- **Role de Professor DAFP não configurada no site** (`403`): `code = "operators_not_configured"`, `message = "A Role de Professor DAFP não foi configurada no site (aba Integração BotGhost → Provas DAFP)."`.
 
 **Chave de repetição (`idempotencyKey`).**
 - Obrigatória nos POST que criam algo (criar sessão, regenerar links).
@@ -109,13 +140,13 @@ Nada foi removido ou renomeado.
 
 **`GET /dafp/exams`**
 - **Autenticação:** `Authorization: Bearer <chave>` + identificação em **URL Params**.
-- **Quem pode usar:** quem está na lista **"Professores que podem gerar provas DAFP"** (aba Integração BotGhost). Essa lista é **separada** das listas TCEL.
+- **Quem pode usar:** quem tem a **Role de Professor DAFP** (seção 0.1), conferida em `actorRoleIds`. Isso é **separado** das listas de operadores TCEL.
 - **Canal:** se "Canal do /provas-dafp" estiver preenchido na aba Integração, só esse canal é aceito.
 - **O que retorna:** só provas do grupo **DAFP**, **ativas** e com **questões ativas**. A TCEL nunca aparece.
 
 Request (URL Params):
 ```
-GET /dafp/exams?guildId=900000000000000000&actorDiscordId=700000000000000009&channelId=600000000000000001&actorDisplayName=Professor
+GET /dafp/exams?guildId=900000000000000000&actorDiscordId=700000000000000009&channelId=600000000000000001&actorDisplayName=Professor&actorRoleIds=<@&820000000000000002> <@&820000000000000001>
 ```
 
 Resposta real `200 dafp_exams` (com uma prova cadastrada; as opções `opt2…opt25` vêm com `Hide = "true"` e foram omitidas):
@@ -184,7 +215,7 @@ O BotGhost não monta um menu a partir de uma lista (array). Por isso o site dev
 
 **`POST /dafp/rooms`**
 - **Headers:** `Authorization: Bearer <chave>` e `Content-Type: application/json`.
-- **Permissão:** a lista de professores DAFP.
+- **Permissão:** a **Role de Professor DAFP** em `actorRoleIds` (seção 0.1).
 - **Sessão = sala:** `sessionId` é igual a `roomId`.
 - **Cargos:** criar a sessão **não altera cargo nenhum**. A Role base só sai quando o aluno **inicia** a prova (seção E).
 
@@ -195,6 +226,7 @@ O BotGhost não monta um menu a partir de uma lista (array). Por isso o site dev
 | `actorDiscordId` | sim | ID do professor que executou o `/provas-dafp` |
 | `channelId` | sim* | ID do canal (*obrigatório se o canal do /provas-dafp estiver configurado) |
 | `actorDisplayName` | não | nome do professor |
+| **`actorRoleIds`** | **sim** | cargos de quem executou (IDs ou menções `<@&ID>`); precisa incluir a Role de Professor DAFP (seção 0.1) |
 | `student` | **sim** | ID do **aluno**, ou a menção `<@ID>` |
 | `supervisorDiscordId` | **sim** | ID do **avaliador**, ou a menção `<@ID>`. Precisa ser outra pessoa que não o aluno |
 | `examSlug` | **sim** | slug da prova escolhida (ex.: `aspirante`). Aceita também `examId` no lugar |
@@ -218,6 +250,7 @@ Exemplo de request:
   "actorDiscordId": "700000000000000009",
   "channelId": "600000000000000001",
   "actorDisplayName": "Professor",
+  "actorRoleIds": "<@&820000000000000002> <@&820000000000000001>",
   "student": "700000000000000101",
   "studentDisplayName": "Recruta Lima",
   "supervisorDiscordId": "700000000000000202",
@@ -865,9 +898,9 @@ Depois do fim, `dafpBaseRoleState` vem `DEVOLUCAO_PENDENTE` até o BotGhost conf
 |---|---|---|
 | 200 | `dafp_exams`, `dafp_exam`, `ready`, `dafp_session`, `dafp_results`, `dafp_results_empty`, `links_regenerated`, `room_already_created` (repetição), `claimed`, `acked`, `already_acked`, `will_retry` | sucesso |
 | 201 | `room_created` | sessão criada (links só aqui) |
-| 400 | `invalid_field`, `invalid_user`, `supervisor_required`, `supervisor_is_student`, `exam_required`, `idempotency_key_required`, `invalid_json`, `invalid_message_id`, `invalid_outcome`, `invalid_id` | pedido inválido |
+| 400 | `invalid_field` (inclui `actorRoleIds` ausente/inválido nas rotas DAFP), `invalid_user`, `supervisor_required`, `supervisor_is_student`, `exam_required`, `idempotency_key_required`, `invalid_json`, `invalid_message_id`, `invalid_outcome`, `invalid_id` | pedido inválido |
 | 401 | `unauthorized` | chave ausente ou errada |
-| 403 | `guild_not_allowed`, `wrong_channel`, `operators_not_configured`, `operator_not_allowed` | servidor, canal ou professor não autorizados (vem com a mensagem pronta "⛔ …") |
+| 403 | `guild_not_allowed`, `wrong_channel`, `operators_not_configured`, `operator_not_allowed` | servidor, canal ou professor não autorizados (vem com a mensagem pronta "⛔ …"). No DAFP: `operator_not_allowed` = sem a Role de Professor DAFP em `actorRoleIds` (traz `data.rolesReceived`); `operators_not_configured` = Role não configurada no site |
 | 404 | `exam_not_found`, `session_not_found`, `room_not_found`, `not_found` | inexistente |
 | 409 | `exam_not_dafp`, `exam_inactive`, `exam_not_eligible`, `room_exists`, `session_not_dafp`, `room_closed`, `regenerate_too_soon`, `idempotency_conflict`, `request_in_progress` | sessão/prova |
 | 409 | `already_claimed`, `already_delivered`, `not_ready`, `ambiguous_needs_review`, `failed`, `config_missing`, `lease_mismatch` | fila (claim/ack) |
@@ -890,6 +923,7 @@ Depois do fim, `dafpBaseRoleState` vem `DEVOLUCAO_PENDENTE` até o BotGhost conf
 | `resultRoleId` | Agora só o cargo de aprovado (vazio se não aprovado). |
 | Resultado DAFP excluído antes de publicar | Antes vinha como aviso `result` sem mensagem. **Agora** a devolução vem pelo aviso próprio `dafp_base_restore`, com o **mesmo formato** (`DAFP_FINISHED`, `publishMessage = "false"`, só a posição 1). O ramo `DAFP_FINISHED` já existente atende sem mudança. |
 | Novo `kind` | `dafp_base_restore`. O TCEL nunca recebe esse aviso. |
+| "Professores que podem gerar provas DAFP" (lista de IDs) | **Substituído** pela **Role de Professor DAFP** (`dafp.professorRoleId`), um único ID de cargo. A autorização DAFP deixou de comparar `actorDiscordId` com a configuração e passou a exigir `actorRoleIds`. **Configuração antiga:** se a lista tinha **um** ID (o ID da Role), ele passa a valer como a Role automaticamente e é gravado no campo novo ao salvar a aba. Com **vários** IDs, o painel pede para informar a Role. |
 | Rotas | Nenhuma rota foi removida ou renomeada; nenhuma rota nova foi criada nestas atualizações. |
 
 ---
@@ -905,12 +939,17 @@ Ordem técnica do que o BotGhost precisa fazer. Os blocos e nomes de variáveis 
    3. em **⚙ Integração / Resultado**, confira o **identificador (slug)**;
    4. configure **Aprovação automática**, **Nota mínima**, o **ID do cargo de APROVADO** da prova (ex.: Aprovado Prova Aspirante) e, se quiser, o canal próprio.
 2. **No painel, "Integração BotGhost → Provas DAFP":**
-   1. preencha os **Professores DAFP** e o **Canal padrão de resultados DAFP**;
+   1. preencha a **Role de Professor DAFP (ID do cargo)** e o **Canal padrão de resultados DAFP**;
    2. em **Cargos automáticos DAFP**, preencha a **Role obrigatória durante o fluxo** (Bombeiros Militares da Fluxo) e o **Mérito em Proficiência**;
    3. clique em Salvar.
    - **Importante:** só preencha a Role obrigatória **depois** de o evento de webhook (passo 7) estar pronto para `DAFP_STARTED`. Assim que ela é salva, toda prova DAFP iniciada gera um aviso de remoção.
 3. **No Discord:** o cargo do bot precisa estar **acima** da Role base, dos cargos de aprovado e do Mérito, com a permissão **Gerenciar Cargos**.
 4. **A chave do site** já está em **Manage Secrets** (a mesma do TCEL).
+
+### 0.5 Em TODO pedido `/dafp/*`: identificação + `actorRoleIds`
+- `GET /dafp/exams`, `GET /dafp/exams/{ref}`, `POST /dafp/rooms/prepare`, `POST /dafp/rooms`, `POST /dafp/rooms/{id}/regenerate-links`, `GET /dafp/sessions/{id}` e `GET /dafp/results` exigem a Role de Professor DAFP.
+- Mande sempre `actorRoleIds` (seção 0.1) junto com `guildId`, `actorDiscordId` e `channelId`.
+- `/notifications/...` **não** usa identificação nem `actorRoleIds`: só a chave.
 
 ### 1–3. CRIAÇÃO: receber aluno, avaliador e prova
 - O comando `/provas-dafp` coleta:
@@ -930,6 +969,7 @@ Envie **`POST /dafp/rooms`** (seção C):
   "actorDiscordId": "<ID de quem executou>",
   "channelId": "<ID do canal>",
   "actorDisplayName": "<nome de quem executou>",
+  "actorRoleIds": "<cargos de quem executou: IDs ou menções>",
   "student": "<ID do aluno>",
   "studentDisplayName": "<nome do aluno (opcional)>",
   "studentAvatarUrl": "<URL da foto do aluno (opcional)>",

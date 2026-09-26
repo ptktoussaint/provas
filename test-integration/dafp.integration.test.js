@@ -35,7 +35,7 @@ beforeEach(async () => {
   await db.reset();
   envRef.current = H.testEnv();
   await H.saveDefaultConfig({
-    operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR, dafp: H.OPERATOR },
+    operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR },
     dafp: { resultChannelId: DAFP_CHANNEL },
   });
   api = await H.startApi(envRef);
@@ -61,7 +61,7 @@ let seq = 0;
 function dafpBody(examSlug, extra = {}) {
   seq += 1;
   return {
-    ...H.actorFields(), student: STUDENT, studentDisplayName: 'Recruta Lima', supervisorDiscordId: EVALUATOR, supervisorDisplayName: 'Cap Souza', examSlug, idempotencyKey: `dafp-${seq}`, ...extra,
+    ...H.dafpActorFields(), student: STUDENT, studentDisplayName: 'Recruta Lima', supervisorDiscordId: EVALUATOR, supervisorDisplayName: 'Cap Souza', examSlug, idempotencyKey: `dafp-${seq}`, ...extra,
   };
 }
 
@@ -124,7 +124,7 @@ test('listagem e consulta DAFP: só provas DAFP aptas; TCEL nunca aparece e é r
   const inactive = await dafpExam('Capitão', 'capitao');
   await M.Exam.updateOne({ _id: inactive._id }, { $set: { active: false } });
 
-  const list = await api.call('GET', '/dafp/exams', H.actorFields());
+  const list = await api.call('GET', '/dafp/exams', H.dafpActorFields());
   assert.equal(list.status, 200);
   assert.equal(list.body.data.examCount, '2');
   const slugs = list.body.data.exams.map((e) => e.examSlug).sort();
@@ -139,12 +139,12 @@ test('listagem e consulta DAFP: só provas DAFP aptas; TCEL nunca aparece e é r
   assert.equal(aspView.examMaxScore, '10');
   assert.equal(aspView.resultChannelId, DAFP_CHANNEL);
 
-  const one = await api.call('GET', '/dafp/exams/aspirante', H.actorFields());
+  const one = await api.call('GET', '/dafp/exams/aspirante', H.dafpActorFields());
   assert.equal(one.body.data.examId, String(asp._id));
   assert.equal(one.body.data.eligible, 'true');
-  assert.equal((await api.call('GET', `/dafp/exams/${asp._id}`, H.actorFields())).body.data.examSlug, 'aspirante');
-  assert.equal((await api.call('GET', '/dafp/exams/capitao', H.actorFields())).body.data.eligible, 'false');
-  const t = await api.call('GET', '/dafp/exams/tcel', H.actorFields());
+  assert.equal((await api.call('GET', `/dafp/exams/${asp._id}`, H.dafpActorFields())).body.data.examSlug, 'aspirante');
+  assert.equal((await api.call('GET', '/dafp/exams/capitao', H.dafpActorFields())).body.data.eligible, 'false');
+  const t = await api.call('GET', '/dafp/exams/tcel', H.dafpActorFields());
   assert.equal(t.status, 409);
   assert.equal(t.body.code, 'exam_not_dafp');
 
@@ -187,21 +187,21 @@ test('DAFP aprovado: sessão, links, finalização, aprovação e cargo; consult
   assert.equal(room.examGroup, 'DAFP');
   assert.equal(room.proctorTokens[0].discordUserId, EVALUATOR);
 
-  let s = await api.call('GET', `/dafp/sessions/${d.sessionId}`, H.actorFields());
+  let s = await api.call('GET', `/dafp/sessions/${d.sessionId}`, H.dafpActorFields());
   assert.equal(s.body.data.sessionStatus, 'CRIADA');
   assert.equal(s.body.data.resultStatus, '');
 
   const lifecycle = M.lifecycle;
   const { attempt } = await lifecycle.startOrResumeAttempt(d.roomId);
   assert.equal(attempt.examGroup, 'DAFP');
-  s = await api.call('GET', `/dafp/sessions/${d.sessionId}`, H.actorFields());
+  s = await api.call('GET', `/dafp/sessions/${d.sessionId}`, H.dafpActorFields());
   assert.equal(s.body.data.sessionStatus, 'EM_ANDAMENTO');
 
   const at = await H.takeExam(d.roomId, 8);
   assert.equal(at.outcome.resultStatus, 'APROVADO');
   assert.equal(at.outcome.resultRoleId, ROLE_OK);
 
-  s = await api.call('GET', `/dafp/sessions/${d.sessionId}`, H.actorFields());
+  s = await api.call('GET', `/dafp/sessions/${d.sessionId}`, H.dafpActorFields());
   const r = s.body.data;
   assert.equal(r.sessionStatus, 'FINALIZADA');
   assert.equal(r.attemptId, String(at._id));
@@ -246,7 +246,7 @@ test('DAFP aprovado: sessão, links, finalização, aprovação e cargo; consult
   assert.equal(f.Resultado, 'APROVADO');
   const ack = await api.call('POST', `/notifications/${n._id}/ack`, { leaseToken: cd.leaseToken, outcome: 'delivered', messageId: '910000000000000001', channelId: DAFP_CHANNEL });
   assert.equal(ack.body.code, 'acked');
-  assert.equal((await api.call('GET', `/dafp/sessions/${d.sessionId}`, H.actorFields())).body.data.resultPublished, 'true');
+  assert.equal((await api.call('GET', `/dafp/sessions/${d.sessionId}`, H.dafpActorFields())).body.data.resultPublished, 'true');
 
   // Edição posterior (ex.: prova oral no admin) edita a mensagem e NÃO
   // reaplica cargo; a aprovação gravada não muda.
@@ -266,7 +266,7 @@ test('DAFP reprovado, nota igual à mínima = aprovado, e sem aprovação autom�
   const fail = await dafpRun('segundo-tenente', 6);
   assert.equal(fail.attempt.outcome.resultStatus, 'REPROVADO');
   assert.equal(fail.attempt.outcome.resultRoleId, null, 'reprovado não recebe cargo');
-  let s = (await api.call('GET', `/dafp/sessions/${fail.room.sessionId}`, H.actorFields())).body.data;
+  let s = (await api.call('GET', `/dafp/sessions/${fail.room.sessionId}`, H.dafpActorFields())).body.data;
   assert.equal(s.resultStatus, 'REPROVADO');
   assert.equal(s.passed, 'false');
   assert.equal(s.resultRoleId, '');
@@ -280,7 +280,7 @@ test('DAFP reprovado, nota igual à mínima = aprovado, e sem aprovação autom�
   assert.equal(exact.attempt.outcome.resultRoleId, ROLE_OK);
 
   const noAuto = await dafpRun('primeiro-tenente', 3);
-  s = (await api.call('GET', `/dafp/sessions/${noAuto.room.sessionId}`, H.actorFields())).body.data;
+  s = (await api.call('GET', `/dafp/sessions/${noAuto.room.sessionId}`, H.dafpActorFields())).body.data;
   assert.equal(s.sessionStatus, 'FINALIZADA');
   assert.equal(s.scoreText, '3/10');
   assert.equal(s.autoApproval, 'false');
@@ -294,7 +294,7 @@ test('DAFP reprovado, nota igual à mínima = aprovado, e sem aprovação autom�
 
   // Mudar a configuração da prova depois NÃO reescreve resultado antigo.
   await M.Exam.updateOne({ slug: 'segundo-tenente' }, { $set: { passingScore: 9 } });
-  s = (await api.call('GET', `/dafp/sessions/${exact.room.sessionId}`, H.actorFields())).body.data;
+  s = (await api.call('GET', `/dafp/sessions/${exact.room.sessionId}`, H.dafpActorFields())).body.data;
   assert.equal(s.resultStatus, 'APROVADO');
   assert.equal(s.passingScore, '7');
 });
@@ -338,7 +338,7 @@ test('isolamento: TCEL não lista nem promove DAFP; /dafp/results só DAFP; perm
   const cands = await api.call('GET', '/promotion-candidates', H.actorFields());
   assert.equal(cands.body.data.total, '1');
 
-  const dl = await api.call('GET', '/dafp/results', { ...H.actorFields(), pageSize: '1' });
+  const dl = await api.call('GET', '/dafp/results', { ...H.dafpActorFields(), pageSize: '1' });
   assert.equal(dl.body.data.total, '1');
   assert.equal(dl.body.data.resultSingle, 'true');
   assert.equal(dl.body.data.resultAttemptId, String(dafpRes.attempt._id));
@@ -346,17 +346,17 @@ test('isolamento: TCEL não lista nem promove DAFP; /dafp/results só DAFP; perm
   assert.equal(dl.body.data.resultRoleId, ROLE_OK);
   assert.equal(dl.body.data.resultScoreText, '8/10');
   assert.equal(dl.body.data.items[0].supervisorMention, `<@${EVALUATOR}>`);
-  assert.equal((await api.call('GET', '/dafp/results', { ...H.actorFields(), examSlug: 'major' })).body.data.total, '1');
+  assert.equal((await api.call('GET', '/dafp/results', { ...H.dafpActorFields(), examSlug: 'major' })).body.data.total, '1');
 
   // Sessão TCEL não é consultável pelo DAFP e vice-versa no regenerar.
-  assert.equal((await api.call('GET', `/dafp/sessions/${t.body.data.roomId}`, H.actorFields())).body.code, 'session_not_dafp');
+  assert.equal((await api.call('GET', `/dafp/sessions/${t.body.data.roomId}`, H.dafpActorFields())).body.code, 'session_not_dafp');
 
-  // Operador só da TCEL não usa o DAFP (lista própria).
-  await H.saveDefaultConfig({ operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR, dafp: H.OTHER_OPERATOR }, dafp: { resultChannelId: DAFP_CHANNEL } });
-  require('../botghost/configStore').invalidate();
-  const denied = await api.call('GET', '/dafp/exams', H.actorFields());
+  // DAFP é pela Role de Professor DAFP: operador da TCEL sem a Role não usa
+  // o DAFP; quem tem a Role usa, mesmo sem estar em nenhuma lista TCEL.
+  const denied = await api.call('GET', '/dafp/exams', H.actorFields(H.OPERATOR, { actorRoleIds: `<@&${H.OTHER_ROLE}>` }));
   assert.equal(denied.status, 403);
-  assert.equal((await api.call('GET', '/dafp/exams', H.actorFields(H.OTHER_OPERATOR))).status, 200);
+  assert.equal(denied.body.code, 'operator_not_allowed');
+  assert.equal((await api.call('GET', '/dafp/exams', H.dafpActorFields(H.OTHER_OPERATOR))).status, 200);
   assert.equal((await api.call('GET', '/exams', H.actorFields(H.OTHER_OPERATOR))).status, 403, 'professor DAFP não ganha acesso à TCEL');
 });
 

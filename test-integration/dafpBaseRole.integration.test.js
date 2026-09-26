@@ -40,7 +40,7 @@ beforeEach(async () => {
   await db.reset();
   envRef.current = H.testEnv();
   await H.saveDefaultConfig({
-    operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR, dafp: H.OPERATOR },
+    operatorIds: { generate: H.OPERATOR, results: H.OPERATOR, promote: H.OPERATOR },
     dafp: { resultChannelId: DAFP_CHANNEL, baseRoleId: BASE, perfectScoreRoleId: MERIT },
   });
   require('../botghost/configStore').invalidate();
@@ -59,7 +59,7 @@ let seq = 0;
 async function createRoom(examSlug = 'aspirante', student = STUDENT) {
   seq += 1;
   const r = await api.call('POST', '/dafp/rooms', {
-    ...H.actorFields(), student, supervisorDiscordId: EVALUATOR, examSlug, idempotencyKey: `base-${seq}`,
+    ...H.dafpActorFields(), student, supervisorDiscordId: EVALUATOR, examSlug, idempotencyKey: `base-${seq}`,
   });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.data.roomId;
@@ -139,7 +139,7 @@ async function waitFor(fn, ms = 4000) {
 test('A: professor cria a sala e o aluno não inicia — a Role base NÃO é removida', async () => {
   const roomId = await createRoom();
   assert.equal(await M.Notification.countDocuments(), 0, 'nenhum aviso de cargo');
-  const s = (await api.call('GET', `/dafp/sessions/${roomId}`, H.actorFields())).body.data;
+  const s = (await api.call('GET', `/dafp/sessions/${roomId}`, H.dafpActorFields())).body.data;
   assert.equal(s.sessionStatus, 'CRIADA');
   assert.equal(s.dafpBaseRoleState, '');
   assert.equal(s.roleAction1Enabled, 'false');
@@ -169,7 +169,7 @@ test('B: aluno inicia — exatamente UMA ação REMOVE da Role base; estado pers
   assert.equal((await ack(n, d)).body.code, 'acked');
   s = await state(attempt._id);
   assert.ok(s.removeConfirmedAt, 'BotGhost confirmou a remoção');
-  const sess = (await api.call('GET', `/dafp/sessions/${roomId}`, H.actorFields())).body.data;
+  const sess = (await api.call('GET', `/dafp/sessions/${roomId}`, H.dafpActorFields())).body.data;
   assert.equal(sess.sessionStatus, 'EM_ANDAMENTO');
   assert.equal(sess.dafpBaseRoleState, 'SUSPENSA');
 });
@@ -305,7 +305,7 @@ test('I: BotGhost/Discord falha na devolução — prova continua encerrada; dev
   assert.equal(doc.status, 'finished', 'prova continua encerrada');
   assert.equal(doc.outcome.resultStatus, 'REPROVADO');
   assert.equal(doc.dafpBaseRole.restoreConfirmedAt, null, 'devolução NÃO confirmada');
-  const sess = (await api.call('GET', `/dafp/sessions/${roomId}`, H.actorFields())).body.data;
+  const sess = (await api.call('GET', `/dafp/sessions/${roomId}`, H.dafpActorFields())).body.data;
   assert.equal(sess.dafpBaseRoleState, 'DEVOLUCAO_PENDENTE');
 
   // Reconciliação: recoloca na fila sozinha (não depende do admin).
@@ -318,7 +318,7 @@ test('I: BotGhost/Discord falha na devolução — prova continua encerrada; dev
   await expectRestore(attempt._id);
   // Confirmada: a reconciliação para de agir.
   assert.equal(await dispatcher.reconcileDafpRoles(), 0);
-  assert.equal((await api.call('GET', `/dafp/sessions/${roomId}`, H.actorFields())).body.data.dafpBaseRoleState, 'DEVOLVIDA');
+  assert.equal((await api.call('GET', `/dafp/sessions/${roomId}`, H.dafpActorFields())).body.data.dafpBaseRoleState, 'DEVOLVIDA');
 });
 
 test('J: processamento duplicado — sem inversão de estado nem inconsistência', async () => {

@@ -9,8 +9,14 @@ const configStore = require('./configStore');
 // BOTGHOST_SITE_API_KEY (só no ambiente) vai no header
 // "Authorization: Bearer <chave>". Sem chave configurada = integração
 // fechada. A chave autentica o BotGhost, NÃO o operador: o operador é o
-// actorDiscordId que o BotGhost tira da interação real ({user_id}) e que o
-// site confere na lista de IDs autorizados por ação (configurada no admin).
+// actorDiscordId que o BotGhost tira da interação real ({user_id}).
+// - TCEL: o site confere o actorDiscordId na lista de IDs autorizados por
+//   ação (configurada no admin).
+// - DAFP: o acesso é por ROLE (dafp.professorRoleId). O site não fala com o
+//   Discord (não tem token de bot), então quem atesta os cargos de quem
+//   executou é o próprio BotGhost autenticado, em actorRoleIds — a mesma
+//   confiança já dada ao actorDiscordId. Qual Role é exigida é decidido SÓ
+//   no site (nunca vem no pedido).
 
 const MIN_KEY_LENGTH = 32;
 
@@ -49,6 +55,42 @@ function createKeyAuth(getEnv) {
   };
 }
 
+const MAX_ROLE_TEXT = 8000;
+const MAX_ROLES = 300;
+const SNOWFLAKE_RUN = /(?<!\d)\d{17,20}(?!\d)/g;
+
+// Cargos de quem executou, como o BotGhost entrega: lista de IDs ou de
+// menções (<@&ID>), separados por vírgula/espaço, ou uma lista JSON de
+// textos. Número no JSON perde precisão → recusado. null = campo ausente.
+function parseActorRoleIds(raw) {
+  if (raw == null) return null;
+  const parts = Array.isArray(raw) ? raw : [raw];
+  const out = new Set();
+  for (const part of parts) {
+    if (typeof part !== 'string') {
+      throw new ApiError(400, 'invalid_field', 'actorRoleIds precisa ser texto (IDs ou menções dos cargos), nunca número.', { field: 'actorRoleIds' });
+    }
+    if (part.length > MAX_ROLE_TEXT) throw new ApiError(400, 'invalid_field', 'actorRoleIds grande demais.', { field: 'actorRoleIds' });
+    for (const id of part.match(SNOWFLAKE_RUN) || []) out.add(id);
+  }
+  if (out.size > MAX_ROLES) throw new ApiError(400, 'invalid_field', 'actorRoleIds com cargos demais.', { field: 'actorRoleIds' });
+  return [...out];
+}
+
+// DAFP: o operador precisa ter a Role de Professor DAFP configurada no site.
+async function checkDafpProfessor(config, src, actorDiscordId, req) {
+  const roleId = config.dafp.professorRoleId;
+  if (!roleId) throw new ApiError(403, 'operators_not_configured', 'A Role de Professor DAFP não foi configurada no site (aba Integração BotGhost → Provas DAFP).');
+  const roles = parseActorRoleIds(src.actorRoleIds);
+  if (roles == null) {
+    throw new ApiError(400, 'invalid_field', 'actorRoleIds obrigatório no /provas-dafp: envie os cargos de quem executou o comando (IDs ou menções).', { field: 'actorRoleIds' });
+  }
+  if (!roles.includes(roleId)) {
+    await logThrottled('botghost_operator_denied', `o:${actorDiscordId}:dafp`, { actorDiscordId, action: 'dafp', rolesReceived: roles.length, route: req.path });
+    throw new ApiError(403, 'operator_not_allowed', 'Você não está autorizado a gerar provas DAFP: é preciso ter a Role de Professor DAFP.', { rolesReceived: String(roles.length) });
+  }
+}
+
 // Confere servidor, canal (se configurado) e operador para a ação. Os IDs
 // vêm do contexto real da interação no BotGhost ({server_id}, {user_id},
 // {channel_id}), nunca de campos digitados.
@@ -84,6 +126,17 @@ async function resolveActor(req, action, getEnv) {
       throw new ApiError(403, 'wrong_channel', isDafp ? 'Use o /provas-dafp no canal autorizado.' : 'Use o painel da Prova TCEL no canal autorizado.');
     }
   }
+  if (isDafp) {
+    await checkDafpProfessor(config, src, actorDiscordId, req);
+    return {
+      guildId,
+      actorDiscordId,
+      actorDisplayName: userText(src.actorDisplayName || '', 80) || 'Operador',
+      channelId: isSnowflake(channelId) ? channelId : null,
+      config,
+      action,
+    };
+  }
   // "any" = qualquer operador de qualquer ação TCEL (ex.: publicar o painel).
   const allowed = action === 'any'
     ? Array.from(new Set([...config.operatorIds.generate, ...config.operatorIds.results, ...config.operatorIds.promote]))
@@ -91,7 +144,7 @@ async function resolveActor(req, action, getEnv) {
   if (!allowed.length) throw new ApiError(403, 'operators_not_configured', 'Nenhum operador autorizado para esta ação foi configurado no site.');
   if (!allowed.includes(actorDiscordId)) {
     await logThrottled('botghost_operator_denied', `o:${actorDiscordId}:${action}`, { actorDiscordId, action, route: req.path });
-    throw new ApiError(403, 'operator_not_allowed', isDafp ? 'Você não está autorizado a gerar provas DAFP.' : 'Você não está autorizado a usar esta função da Prova TCEL.');
+    throw new ApiError(403, 'operator_not_allowed', 'Você não está autorizado a usar esta função da Prova TCEL.');
   }
   return {
     guildId,
@@ -103,4 +156,4 @@ async function resolveActor(req, action, getEnv) {
   };
 }
 
-module.exports = { createKeyAuth, resolveActor, safeEqual, MIN_KEY_LENGTH };
+module.exports = { createKeyAuth, resolveActor, parseActorRoleIds, safeEqual, MIN_KEY_LENGTH };

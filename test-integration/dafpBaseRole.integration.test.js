@@ -308,7 +308,11 @@ test('I: BotGhost/Discord falha na devolução — prova continua encerrada; dev
   const sess = (await api.call('GET', `/dafp/sessions/${roomId}`, H.dafpActorFields())).body.data;
   assert.equal(sess.dafpBaseRoleState, 'DEVOLUCAO_PENDENTE');
 
-  // Reconciliação: recoloca na fila sozinha (não depende do admin).
+  // Reconciliação: recoloca na fila sozinha (não depende do admin), mas só
+  // depois do intervalo de espera — nada de disparar sem parar.
+  assert.equal(await dispatcher.reconcileDafpRoles(), 0, 'dentro do intervalo: não redispara');
+  assert.equal((await M.Notification.findById(n._id).lean()).status, 'failed');
+  await M.Notification.updateOne({ _id: n._id }, { $set: { lastErrorAt: new Date(Date.now() - 31 * 60 * 1000) } });
   assert.ok(await dispatcher.reconcileDafpRoles() >= 1);
   assert.equal((await M.Notification.findById(n._id).lean()).status, 'pending');
   // Site reiniciou e o aviso sumiu: é recriado.

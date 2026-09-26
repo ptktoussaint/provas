@@ -58,6 +58,20 @@ class NotificationDispatcher {
         { sort: { nextDispatchAt: 1 }, new: true },
       );
       if (!n) break;
+      // Aviso de cargo DAFP que o claim recusaria (ex.: devolução de uma
+      // tentativa ainda em andamento, ou de um aluno que está em outra
+      // prova): não dispara o webhook. Fica cancelado; a reconciliação o
+      // recoloca na fila quando a devolução voltar a ser necessária.
+      const hold = await notifications.dispatchHoldReason(n);
+      if (hold) {
+        await IntegrationNotification.updateOne({ _id: n._id, status: 'dispatched' }, {
+          $set: { status: 'cancelled', 'lease.token': null },
+          $inc: { dispatchAttempts: -1 },
+          $push: { history: { $each: [{ at: new Date(), event: 'held_not_dispatched', detail: hold }], $slice: -30 } },
+        });
+        sent += 1;
+        continue;
+      }
       const res = await triggerWebhook({ webhookUrl: env.webhookUrl, webhookApiKey: env.webhookApiKey, notificationId: n._id, kind: n.kind, fetchImpl: this.fetchImpl });
       await this.recordOutcome(n, res);
       sent += 1;

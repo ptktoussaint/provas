@@ -461,7 +461,7 @@ Cada tentativa DAFP guarda (no banco, campo `dafpBaseRole`):
 | `releasedAt` | a tentativa saiu de "em andamento" (qualquer motivo) |
 | `restoreRequestedAt` | o aviso de devolução (`dafp_base_restore`) foi criado |
 | `restoreConfirmedAt` | o BotGhost confirmou um ADD da Role base desta tentativa |
-| `restoreConfirmedVia` | qual aviso confirmou: `dafp_base_restore` ou `result` |
+| `restoreConfirmedVia` | qual aviso confirmou: `dafp_base_restore`, `result` ou `superseded` (a Role do aluno foi confirmada como devolvida por uma prova **posterior** dele, sem nenhuma prova em andamento) |
 
 Além disso, `dafpBaseRoleRemovedId` guarda **qual** Role foi retirada: é exatamente essa que volta, mesmo que a configuração mude no meio.
 
@@ -473,13 +473,32 @@ A prova **nunca** depende do Discord: iniciar, finalizar, cancelar e corrigir ac
 | Falha | O que acontece |
 |---|---|
 | Webhook do BotGhost fora do ar / erro de rede / 429 / 5xx | o aviso volta para a fila com espera crescente; o erro fica em `lastError` |
-| BotGhost reservou e não confirmou em 2 minutos (travou, timeout) | aviso só de cargos **volta para a fila** e é refeito (seguro) |
+| BotGhost reservou e não confirmou em 2 minutos (travou, timeout, ramo do evento sem `ack`) | aviso só de cargos **volta para a fila** com espera crescente. Cada reserva sem `ack` **conta como tentativa**: depois de **6**, fica **"com falha"** (`lastError` explica), sem disparar mais sozinho |
 | BotGhost respondeu `outcome: "failed"` (ex.: bot sem permissão, Discord indisponível) | nova tentativa com espera; depois de 6 falhas fica "com falha" |
-| Aviso de devolução "com falha" ou cancelado, e a devolução **não** confirmada | a **reconciliação** (ao ligar o site e a cada 5 minutos) o **recoloca na fila sozinha**, sem depender do admin. O admin também pode usar "Reprocessar agora" |
+| Aviso de devolução cancelado, e a devolução **não** confirmada | a **reconciliação** (ao ligar o site e a cada 5 minutos) o **recoloca na fila sozinha**, sem depender do admin, **desde que** a tentativa dele esteja encerrada e o aluno não esteja em outra prova DAFP |
+| Aviso de devolução **"com falha"** e a devolução **não** confirmada | a reconciliação o recoloca na fila **30 minutos** depois da última falha (não fica disparando sem parar). O admin pode usar "Reprocessar agora" antes disso |
 | Site reiniciou (Render) entre o fim da prova e a criação do aviso, ou o aviso sumiu | a reconciliação **recria** o aviso de devolução |
 | Site reiniciou com a prova em andamento | a prova continua; se o prazo acabar, o servidor encerra ao voltar e gera o ADD |
 
-A reconciliação procura toda tentativa DAFP que teve a Role base retirada, **não** está mais em andamento e **não** tem `restoreConfirmedAt`, e garante um aviso de devolução na fila. Ela só para quando o BotGhost confirma. **Preferimos repetir um ADD a arriscar deixar o aluno sem a Role.**
+A reconciliação procura toda tentativa DAFP que:
+1. teve a Role base retirada (`dafpBaseRoleRemovedId`);
+2. **não** está mais em andamento (encerrada ou excluída);
+3. **não** tem `restoreConfirmedAt`.
+
+Para essas, ela garante um aviso de devolução na fila. Ela só para quando o BotGhost confirma. **Preferimos repetir um ADD a arriscar deixar o aluno sem a Role.**
+
+**Tentativa em andamento nunca entra nisso**, com ou sem `removeConfirmedAt`: atraso ou falta do `ack` da remoção **não** é motivo para devolver.
+
+#### Isolamento por tentativa (avisos antigos)
+Cada aviso de cargo pertence a **uma** tentativa (`attemptId`, chaves `dafp_started:<tentativa>` e `dafp_restore:<tentativa>`). Um aviso de devolução de uma tentativa **anterior** já encerrada nunca é confundido com a prova atual:
+- **Antes de disparar o webhook**, o site confere a tentativa **do próprio aviso**. **Não dispara** (fica `cancelado`, com o motivo no histórico) quando:
+  - a tentativa ainda está em andamento;
+  - a Role já foi devolvida;
+  - o aluno está em outra prova DAFP;
+  - (para `dafp_started`) a prova dele já terminou.
+- **O `claim` confere de novo:** um `dafp_base_restore` de tentativa em andamento responde `410 nothing_to_do` e **nunca** entrega `ADD`, mesmo que o aviso tenha sido criado indevidamente.
+- **Quando a devolução de uma prova é confirmada** e o aluno não tem prova DAFP em andamento, as devoluções **antigas** dele ainda pendentes (mesma Role) são dadas como cumpridas (`restoreConfirmedVia = "superseded"`) e saem da fila.
+- Na aba **Integração → Fila de avisos**, cada aviso de cargo mostra **o aluno** e **a tentativa** (`…` + 6 últimos caracteres do `attemptId`). Os campos `attemptId` e `sessionId` do `claim` dizem a qual prova o aviso pertence.
 
 #### Idempotência e ordem
 - `ADD` = "garantir que a Role esteja **presente**"; `REMOVE` = "garantir que esteja **ausente**". Repetir qualquer um deixa o mesmo estado.
@@ -809,13 +828,14 @@ Criado **em toda** saída de "em andamento" (seção E.1), independente de haver
 - `200 will_retry` / `200 failed`: falha registrada, com nova tentativa ou esgotada. Real: `{"ok": true, "code": "will_retry", "message": "Falha registrada; nova tentativa mais tarde.", "data": {"displayText": "Falha registrada; nova tentativa mais tarde."}}`;
 - `400 invalid_message_id`: aviso **com** mensagem confirmado sem `messageId`;
 - `409 lease_mismatch`: a reserva venceu ou foi assumida por outra execução.
-  - Reserva vencida de aviso **só de cargos**: volta para a fila e é refeita (seguro).
+  - Reserva vencida de aviso **só de cargos**: volta para a fila e é refeita (seguro), contando como tentativa. Depois de 6 reservas sem `ack`, fica "com falha". **O BotGhost precisa confirmar (`ack`) também os avisos sem mensagem** (`DAFP_STARTED` e `DAFP_FINISHED` com `publishMessage = "false"`); sem isso eles ficam voltando até esgotar.
   - Reserva vencida de **envio de mensagem**: fica "ambígua", e o admin decide no painel.
 
 **O que o `ack` registra na tentativa:**
 - `ack` de um `dafp_started` → `removeConfirmedAt`;
 - `ack` de um aviso com `roleAction1Type = "ADD"` → `restoreConfirmedAt`, e `dafpBaseRoleState` passa a `DEVOLVIDA`;
 - quando o resultado confirma o ADD primeiro, o aviso de devolução que ainda não saiu é cancelado;
+- devoluções antigas do mesmo aluno (tentativas anteriores, mesma Role) são dadas como cumpridas (`superseded`), se ele não tem prova DAFP em andamento;
 - **só o `ack` do BotGhost confirma cargo.** Se o admin marcar uma entrega "ambígua" como publicada, a devolução própria continua valendo até o BotGhost confirmar;
 - `ack` `delivered` de uma remoção cuja reserva já não vale (`409 lease_mismatch`), com a prova já encerrada: o site **reabre** a devolução e pede o ADD de novo.
 

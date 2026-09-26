@@ -96,7 +96,7 @@ router.get('/notifications', async (req, res) => {
   const [total, items] = await Promise.all([
     IntegrationNotification.countDocuments(filter),
     IntegrationNotification.find(filter)
-      .select('kind key status attemptId draftId templateKey chunkIndex dispatchAttempts maxDispatchAttempts nextDispatchAt message lastError lastErrorAt history createdAt updatedAt payload.userIds')
+      .select('kind key status attemptId draftId templateKey chunkIndex dispatchAttempts maxDispatchAttempts nextDispatchAt message lastError lastErrorAt history createdAt updatedAt payload.userIds payload.memberDiscordId')
       .sort({ updatedAt: -1 }).skip(page * size).limit(size).lean(),
   ]);
   res.json({ success: true, total, page, pages: Math.max(1, Math.ceil(total / size)), items });

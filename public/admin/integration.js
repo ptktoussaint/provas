@@ -144,6 +144,10 @@
     tbody.innerHTML = data.items.map((n) => {
       const detail = [];
       if (n.kind === 'promotion_announcement' && n.payload && n.payload.userIds) detail.push(`${n.payload.userIds.length} promovido(s), parte ${Number(n.chunkIndex || 0) + 1}`);
+      // Avisos de cargo DAFP: de qual aluno e de qual tentativa (cada aviso
+      // é de UMA tentativa; avisos antigos não são da prova atual).
+      if (n.payload && n.payload.memberDiscordId) detail.push(`aluno ${n.payload.memberDiscordId}`);
+      if (n.attemptId && ['dafp_started', 'dafp_base_restore', 'result'].includes(n.kind)) detail.push(`tentativa …${String(n.attemptId).slice(-6)}`);
       if (n.templateKey) detail.push(`modelo ${n.templateKey}`);
       if (n.message && n.message.messageId) detail.push(`mensagem ${n.message.messageId}`);
       if (n.lastError) detail.push(n.lastError);

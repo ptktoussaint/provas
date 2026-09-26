@@ -21,6 +21,10 @@ const { startRoleActions, finishRoleActions, roleActionFields, isPerfectScore } 
 // confirma com o ID real da mensagem (ack).
 
 const LEASE_MS = 2 * 60 * 1000;
+// Devolução da Role base que esgotou as tentativas ("com falha"): a
+// reconciliação só a recoloca na fila depois deste intervalo (o admin pode
+// reprocessar antes pela aba Integração).
+const RESTORE_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
 const DISPATCH_CLAIM_TIMEOUT_MS = 3 * 60 * 1000;
 const ANNOUNCE_FLOW_GRACE_MS = 2 * 60 * 1000;
 
@@ -209,7 +213,11 @@ async function ensureBaseRoleRestore(attempt) {
     } else if (['failed', 'cancelled', 'delivered'].includes(n.status)) {
       // Sem confirmação registrada na tentativa: repetir o ADD é seguro
       // (adicionar quem já tem não muda nada) — melhor redundante do que o
-      // aluno ficar sem a Role.
+      // aluno ficar sem a Role. "Com falha" (BotGhost não confirmou nas 6
+      // tentativas) só volta depois de um intervalo: sem isso, um aviso que
+      // o BotGhost nunca confirma seria disparado sem parar.
+      const lastTry = new Date(n.lastErrorAt || n.updatedAt || 0).getTime();
+      if (n.status === 'failed' && Date.now() - lastTry < RESTORE_RETRY_COOLDOWN_MS) return null;
       const r = await IntegrationNotification.updateOne(
         { _id: n._id, status: n.status },
         { $set: { status: 'pending', nextDispatchAt: now, dispatchAttempts: 0, needsUpdate: false, 'lease.token': null, 'lease.until': null }, ...historyPush('requeued', 'Role base ainda não devolvida') },
@@ -222,6 +230,23 @@ async function ensureBaseRoleRestore(attempt) {
     console.error('[botghost] falha ao agendar a devolução da Role base (a prova continua encerrada):', safeError(err));
     return null;
   }
+}
+
+// Motivo para NÃO disparar agora o webhook de um aviso de cargo DAFP (o
+// claim diria "nada a fazer" de qualquer jeito). Isolado pela tentativa do
+// próprio aviso (attemptId): nunca olha a tentativa de outra sessão.
+// - dafp_base_restore: a tentativa DELE ainda está em andamento, a Role já
+//   foi devolvida, ou o aluno está fazendo outra prova DAFP (Role ausente);
+// - dafp_started: a tentativa dele não está mais em andamento.
+async function dispatchHoldReason(n) {
+  if (!['dafp_base_restore', 'dafp_started'].includes(n.kind) || !n.attemptId) return null;
+  const attempt = await ExamAttempt.findById(n.attemptId).select('status deletedAt discordUserId examGroup dafpBaseRoleRemovedId dafpBaseRole').lean();
+  if (!attempt) return 'a tentativa não existe mais';
+  if (n.kind === 'dafp_started') return inProgress(attempt) ? null : 'a prova já terminou: a Role base não precisa mais sair';
+  if (inProgress(attempt)) return 'a tentativa deste aviso ainda está em andamento';
+  if (attempt.dafpBaseRole && attempt.dafpBaseRole.restoreConfirmedAt) return 'a Role base desta tentativa já foi devolvida';
+  if (await otherActiveDafpAttempt(attempt)) return 'o aluno está fazendo outra prova DAFP (Role base continua ausente)';
+  return null;
 }
 
 async function createAnnouncement({ draftId, batch, index, userIds, promotionIds, nicknames, channelId, roleId }) {
@@ -627,6 +652,35 @@ async function lateRemoveGuard(n) {
   await ensureBaseRoleRestore(attempt);
 }
 
+// A Role base do aluno acabou de ser confirmada como PRESENTE e ele não tem
+// prova DAFP em andamento: devoluções pendentes de tentativas ANTERIORES
+// dele (já encerradas, mesma Role) estão cumpridas — marcadas como
+// devolvidas ("superseded") e seus avisos saem da fila. Sem isso, avisos
+// antigos continuariam sendo disparados depois de o aluno já ter a Role.
+async function supersedeOlderRestores(n) {
+  const member = n.lease && n.lease.memberDiscordId;
+  if (!member || !n.attemptId) return;
+  const current = await ExamAttempt.findById(n.attemptId).select('dafpBaseRoleRemovedId').lean();
+  const roleId = current && current.dafpBaseRoleRemovedId;
+  if (!roleId) return;
+  if (await ExamAttempt.exists({ examGroup: 'DAFP', discordUserId: member, status: 'in_progress', deletedAt: null, dafpBaseRoleRemovedId: { $ne: null } })) return;
+  const older = await ExamAttempt.find({
+    _id: { $ne: n.attemptId },
+    examGroup: 'DAFP',
+    discordUserId: member,
+    dafpBaseRoleRemovedId: roleId,
+    'dafpBaseRole.restoreConfirmedAt': null,
+    $or: [{ status: { $ne: 'in_progress' } }, { deletedAt: { $ne: null } }],
+  }).select('_id').lean();
+  if (!older.length) return;
+  const ids = older.map((a) => a._id);
+  await ExamAttempt.updateMany({ _id: { $in: ids }, 'dafpBaseRole.restoreConfirmedAt': null }, { $set: { 'dafpBaseRole.restoreConfirmedAt': new Date(), 'dafpBaseRole.restoreConfirmedVia': 'superseded' } });
+  await IntegrationNotification.updateMany(
+    { key: { $in: ids.map((id) => restoreKey(id)) }, status: { $in: ['pending', 'dispatched', 'failed'] } },
+    { $set: { status: 'cancelled' }, ...historyPush('cancelled', `Role base já devolvida por outro aviso (${n.kind} ${n._id})`) },
+  );
+}
+
 async function afterDelivered(n, { byBot = true } = {}) {
   // Estado da Role base na tentativa: remoção/devolução confirmadas. Só o
   // ack do BotGhost confirma cargo — o admin marcando uma entrega ambígua
@@ -647,6 +701,7 @@ async function afterDelivered(n, { byBot = true } = {}) {
         { $set: { status: 'cancelled' }, ...historyPush('cancelled', 'Role base já devolvida pelo aviso de resultado') },
       );
     }
+    if (baseAction === 'ADD') await supersedeOlderRestores(n);
   }
   if (n.kind === 'result') {
     const attempt = await ExamAttempt.findById(n.attemptId).select('revision');
@@ -669,11 +724,26 @@ async function afterDelivered(n, { byBot = true } = {}) {
 // admin decide (conferir o canal e informar o ID, ou reenviar).
 async function expireLeases(now = new Date()) {
   await IntegrationNotification.updateMany(
-    { status: 'claimed', 'lease.until': { $lt: now }, 'lease.action': { $in: ['edit', 'none'] } },
+    { status: 'claimed', 'lease.until': { $lt: now }, 'lease.action': 'edit' },
     { $set: { status: 'pending', nextDispatchAt: now }, ...historyPush('lease_expired_retry') },
   );
-  // Só cargos (action none): refazer é seguro — adicionar/remover um cargo
-  // de novo deixa o mesmo estado final.
+  // Só cargos (action none, DAFP): refazer é seguro — adicionar/remover um
+  // cargo de novo deixa o mesmo estado final. Mas cada reserva sem
+  // confirmação CONTA como tentativa, com espera crescente: se o BotGhost
+  // reserva e nunca confirma (ex.: ramo do evento não configurado), o aviso
+  // esgota e fica "com falha", em vez de ser disparado a cada 2 minutos
+  // para sempre.
+  const roleOnly = await IntegrationNotification.find({ status: 'claimed', 'lease.until': { $lt: now }, 'lease.action': 'none' }).select('_id dispatchAttempts maxDispatchAttempts');
+  for (const r of roleOnly) {
+    const exhausted = (r.dispatchAttempts || 0) >= (r.maxDispatchAttempts || 6);
+    await IntegrationNotification.updateOne({ _id: r._id, status: 'claimed', 'lease.until': { $lt: now } }, {
+      $set: exhausted
+        ? { status: 'failed', 'lease.token': null, lastError: 'O BotGhost reservou este aviso de cargo e nunca confirmou (ack). Confira no BotGhost o ramo DAFP_STARTED/DAFP_FINISHED do evento do webhook.', lastErrorAt: now }
+        : { status: 'pending', nextDispatchAt: new Date(now.getTime() + backoffMs(r.dispatchAttempts || 1)), lastError: 'Reserva vencida sem confirmação do BotGhost (ack): nova tentativa.', lastErrorAt: now },
+      ...historyPush(exhausted ? 'lease_expired_failed' : 'lease_expired_retry'),
+    });
+  }
+  // Envio de mensagem: vira "ambíguo" (a mensagem pode ter saído).
   await IntegrationNotification.updateMany(
     { status: 'claimed', 'lease.until': { $lt: now }, 'lease.action': { $nin: ['edit', 'none'] } },
     { $set: { status: 'ambiguous', lastError: 'A reserva venceu sem confirmação: a mensagem pode ter sido publicada. Confira o canal.', lastErrorAt: now }, ...historyPush('lease_expired_ambiguous') },
@@ -725,7 +795,7 @@ async function adminResolveAmbiguous(id, { mode, messageId, channelId }, actor) 
 module.exports = {
   announcementContext,
   syncResultNotification, createAnnouncement, createTemplateTest, createPanelUpdate, createDafpStartNotification, startKey,
-  ensureBaseRoleRestore, restoreKey,
+  ensureBaseRoleRestore, restoreKey, dispatchHoldReason,
   claim, ack, expireLeases, adminRetry, adminResolveAmbiguous, backoffMs, safeError,
   LEASE_MS, DISPATCH_CLAIM_TIMEOUT_MS,
 };

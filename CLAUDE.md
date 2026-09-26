@@ -59,7 +59,7 @@ O bug mais difícil deste projeto: sessão do Admin colidindo com a do Aluno/Fis
 - Comentários no código só quando explicam um "porquê" não óbvio (histórico de bug, decisão contra-intuitiva) — o padrão já usado é `// <explicação em português>`, mantenha o idioma consistente com o resto do arquivo.
 - Sempre rodar `npm test` antes de dar como concluído (e `npm run test:integration` se mexer em resultados, finalização, salas ou `botghost/`).
 - O usuário não sabe ler código — respostas para ele devem ser em português, focadas no efeito prático ("o que muda pra você"), não em detalhes de implementação, a menos que peça.
-- Nunca commitar sem o usuário pedir explicitamente (mas commitar/pushar imediatamente quando ele pedir — ele não tem terminal próprio, dependeu disso o projeto inteiro).
+- **Publicação automática (decisão explícita do usuário):** toda atualização pedida, depois de pronta e com `npm test` e `npm run test:integration` passando, é commitada, enviada à branch de trabalho da sessão e **juntada na `main` (deploy no Render) sem precisar pedir** — não esperar "pode juntar na main". Se algum teste falhar, NÃO publicar: corrigir primeiro ou avisar o usuário. Ele não tem terminal próprio, dependeu disso o projeto inteiro.
 
 ## Riscos conhecidos em aberto
 

@@ -9,6 +9,8 @@
 .room-item-meta { color: var(--text-muted); font-size: 12px; }
 .room-item-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .room-item-actions button { margin: 0; }
+.rooms-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); cursor: pointer; }
+.rooms-toggle input { width: 15px; height: 15px; margin: 0; }
 
 .question-item { flex-direction: column; align-items: stretch; }
 .question-item .q-text { font-weight: 600; margin-bottom: 6px; }

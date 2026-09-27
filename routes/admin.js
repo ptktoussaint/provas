@@ -508,8 +508,15 @@ router.delete('/questions/:questionId', async (req, res) => {
 
 // ===================== Salas =====================
 
+// Por padrão só salas em aberto (aguardando ou em prova): as finalizadas e
+// encerradas somem da aba Salas (a nota continua em Resultados). Com
+// ?all=1 lista todas (caixa "Mostrar finalizadas").
 router.get('/rooms', async (req, res) => {
-  const rooms = await Room.find().populate('examId', 'name').sort({ createdAt: -1 }).lean();
+  const filter = req.query.all === '1' ? {} : { status: { $in: ['pending', 'active'] } };
+  const [rooms, hiddenCount] = await Promise.all([
+    Room.find(filter).populate('examId', 'name').sort({ createdAt: -1 }).lean(),
+    Room.countDocuments({ status: { $nin: ['pending', 'active'] } }),
+  ]);
   const withLive = rooms.map((room) => ({
     ...room,
     proctorTokens: room.proctorTokens.map((t) => ({
@@ -518,7 +525,7 @@ router.get('/rooms', async (req, res) => {
     })),
     live: liveState.summary(room._id.toString()),
   }));
-  res.json({ success: true, rooms: withLive });
+  res.json({ success: true, rooms: withLive, finishedCount: hiddenCount });
 });
 
 router.post('/rooms', async (req, res) => {

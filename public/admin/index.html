@@ -279,7 +279,11 @@
           </form>
         </div>
         <div class="panel-section">
-          <h3>Salas</h3>
+          <div class="panel-section-header">
+            <h3>Salas</h3>
+            <label class="rooms-toggle"><input type="checkbox" id="rooms-show-finished" /> Mostrar finalizadas <span id="rooms-finished-count"></span></label>
+          </div>
+          <p class="hint" style="margin-top:-6px">Salas com a prova finalizada ou encerrada saem desta lista sozinhas. A nota continua na aba Resultados.</p>
           <div id="rooms-list" class="list-plain"></div>
         </div>
       </div>

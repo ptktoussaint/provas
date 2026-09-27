@@ -307,7 +307,7 @@ function initSockets(io) {
     // excluída) — sem incluir o roomId aqui também nesse caso, o painel não
     // teria como saber QUAL sala sumiu para tirá-la da lista/parar de
     // monitorar o vídeo dela.
-    const summary = liveState.summary(roomId);
+    const summary = liveState.visibleSummary(roomId);
     io.to('admins').emit('room:update', summary || { roomId, removed: true });
   });
 

@@ -138,6 +138,8 @@
         liveRooms.delete(room.roomId);
         window.AdminMonitor.unwatchRoom(room.roomId);
         renderLiveRooms();
+        loadDashboard();
+        refreshRoomsIfOpen();
         if (monitorActive) renderMonitorGrid();
         return;
       }
@@ -999,15 +1001,25 @@
 
   let roomsCache = [];
   async function loadRooms() {
-    const data = await api('/rooms');
+    const showFinished = document.getElementById('rooms-show-finished').checked;
+    const data = await api(showFinished ? '/rooms?all=1' : '/rooms');
     if (!data.success) return;
     roomsCache = data.rooms;
+    document.getElementById('rooms-finished-count').textContent = data.finishedCount ? `(${data.finishedCount})` : '';
     renderRooms();
+  }
+  document.getElementById('rooms-show-finished').addEventListener('change', loadRooms);
+
+  // Prova terminou/sala encerrada: a aba Salas se atualiza sozinha se
+  // estiver aberta (a sala finalizada some da lista).
+  function refreshRoomsIfOpen() {
+    const tab = document.getElementById('rooms-tab');
+    if (tab && !tab.classList.contains('hidden')) loadRooms();
   }
 
   function renderRooms() {
     const el = document.getElementById('rooms-list');
-    if (roomsCache.length === 0) { el.innerHTML = '<p class="list-empty">Nenhuma sala criada.</p>'; return; }
+    if (roomsCache.length === 0) { el.innerHTML = '<p class="list-empty">Nenhuma sala em aberto.</p>'; return; }
 
     el.innerHTML = roomsCache.map((r) => {
       // Tokens revogados somem da lista — é exatamente isso que "excluir"

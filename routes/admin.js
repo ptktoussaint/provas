@@ -786,4 +786,10 @@ router.get('/security-logs', async (req, res) => {
   res.json({ success: true, logs });
 });
 
+// Uso do banco (somente leitura): contagens, tamanhos e datas por coleção.
+router.get('/storage-report', async (req, res) => {
+  const report = await require('../lib/storageReport').buildStorageReport();
+  res.json({ success: true, report });
+});
+
 module.exports = router;

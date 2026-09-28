@@ -1384,6 +1384,41 @@
     `).join('') || '<tr><td colspan="4" class="list-empty">Sem eventos.</td></tr>';
   }
 
+  // ---------------- Uso do banco (somente leitura) ----------------
+  function fmtBytes(n) {
+    if (n == null) return '—';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(2)} MB`;
+  }
+  document.getElementById('storage-report-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('storage-report-btn');
+    btn.disabled = true; btn.textContent = 'Analisando...';
+    const data = await api('/storage-report');
+    btn.disabled = false; btn.textContent = 'Analisar agora';
+    if (!data.success) { alert(data.message || 'Erro ao analisar.'); return; }
+    const r = data.report;
+    const t = r.totals;
+    const months = t.monthsUntilFull == null ? '—' : t.monthsUntilFull > 1200 ? 'mais de 100 anos' : `~${t.monthsUntilFull} meses`;
+    document.getElementById('storage-report-summary').innerHTML = `
+      <div class="panel-grid" style="margin-bottom:12px">
+        <div class="stat-card"><div class="stat-value">${fmtBytes(t.used)}</div><div class="stat-label">Usado (dados + índices) de 512 MB — ${t.usedPercent}%</div></div>
+        <div class="stat-card"><div class="stat-value">${fmtBytes(t.storageSize)}</div><div class="stat-label">Em disco (comprimido)</div></div>
+        <div class="stat-card"><div class="stat-value">${fmtBytes(t.bytesPerMonth)}</div><div class="stat-label">Crescimento estimado por mês</div></div>
+        <div class="stat-card"><div class="stat-value">${months}</div><div class="stat-label">Até encher, no ritmo atual</div></div>
+      </div>
+      ${t.smallSample ? '<p class="hint" style="margin-top:0">⚠ Amostra pequena em algumas coleções (menos de 30 dias ou de 30 registros): o crescimento estimado pode errar bastante.</p>' : ''}
+      <p class="hint" style="margin-top:0">Gerado em ${fmtDate(r.generatedAt)}. O número oficial de uso é o do painel do Atlas.</p>`;
+    document.getElementById('storage-report-tbody').innerHTML = r.collections.map((c) => {
+      const g = c.growth;
+      const growth = g.selfExpiring ? `se limpa sozinha (${escapeHtml(g.selfExpiring)})`
+        : g.docsPerMonth == null ? '—'
+          : `${g.docsPerMonth} reg. · ${fmtBytes(g.bytesPerMonth)}${g.smallSample ? ' <span title="Amostra pequena">⚠</span>' : ''}`;
+      const monthly = (c.months || []).map((m) => `${m.month.slice(5)}/${m.month.slice(2, 4)}: ${m.count}`).join(' · ') || '—';
+      return `<tr><td><code>${escapeHtml(c.name)}</code></td><td>${c.count}</td><td>${fmtBytes(c.size)}</td><td>${fmtBytes(c.indexSize)}</td><td>${fmtBytes(c.storageSize)}</td><td>${fmtBytes(c.avgObjSize)}</td><td>${c.oldest ? fmtDate(c.oldest) : '—'}</td><td>${c.newest ? fmtDate(c.newest) : '—'}</td><td>${growth}</td><td><span class="hint">${escapeHtml(monthly)}</span></td></tr>`;
+    }).join('');
+  });
+
   // ---------------- Boot ----------------
   loadRoomsOnTabOpen();
   function loadRoomsOnTabOpen() {

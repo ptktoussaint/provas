@@ -351,6 +351,20 @@
       <!-- SEGURANÇA -->
       <div id="security-tab" class="tab-panel hidden">
         <div class="panel-section">
+          <div class="panel-section-header">
+            <h3>Uso do banco de dados</h3>
+            <button class="small-btn secondary-btn" id="storage-report-btn">Analisar agora</button>
+          </div>
+          <p class="hint" style="margin-top:-6px">Somente leitura: mostra quantos registros e quanto espaço cada coleção usa, comparado ao limite de 512 MB do plano gratuito do Atlas. Não altera nem apaga nada e não mostra dados de alunos.</p>
+          <div id="storage-report-summary"></div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Coleção</th><th>Registros</th><th>Dados</th><th>Índices</th><th>Em disco</th><th>Média/registro</th><th>Mais antigo</th><th>Mais recente</th><th>Crescimento/mês (estimado)</th><th>Por mês (últimos 6)</th></tr></thead>
+              <tbody id="storage-report-tbody"><tr><td colspan="10" class="list-empty">Clique em "Analisar agora".</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel-section">
           <h3>Logs de segurança</h3>
           <div class="table-scroll">
             <table class="data-table">

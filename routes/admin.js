@@ -9,8 +9,11 @@ const Room = require('../models/Room');
 const ExamAttempt = require('../models/ExamAttempt');
 const ExamEvent = require('../models/ExamEvent');
 const SecurityLog = require('../models/SecurityLog');
+const HistoryCounter = require('../models/HistoryCounter');
+const storageCleanup = require('../lib/storageCleanup');
 
-const { requireAdmin } = require('../middleware/auth');
+const { requireAdmin, requirePrimary } = require('../middleware/auth');
+const adminUsers = require('../lib/adminUsers');
 const { adminLoginLimiter, adminApiLimiter } = require('../middleware/rateLimit');
 const { uploadImage, uploadVideo } = require('../middleware/upload');
 const { createRoom, regenerateStudentLink, addProctorLink } = require('../lib/rooms');
@@ -68,11 +71,12 @@ router.post('/setup-first-admin', adminLoginLimiter, async (req, res) => {
   }
 
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-  const user = await User.create({ username: String(username).trim(), passwordHash, role: 'admin' });
+  // A primeira conta é o administrador principal.
+  const user = await User.create({ username: String(username).trim(), passwordHash, role: adminUsers.PRIMARY, passwordChangedAt: new Date() });
 
   req.session.student = null;
   req.session.proctor = null;
-  req.session.admin = { id: user._id.toString(), username: user.username };
+  req.session.admin = adminUsers.sessionPayload(user);
   await logSecurityEvent('admin_setup_first_admin', { meta: { username: user.username }, ip: req.ip });
   res.status(201).json({ success: true, username: user.username });
 });
@@ -97,25 +101,41 @@ router.post('/login', adminLoginLimiter, async (req, res) => {
     return res.status(401).json({ success: false, message: 'Credenciais inválidas.' });
   }
 
+  // Conta desativada: só avisa depois da senha certa (sem revelar a quem
+  // não sabe a senha se o login existe).
+  if (user.active === false) {
+    await logSecurityEvent('admin_login_blocked_inactive', { meta: { username }, ip });
+    return res.status(403).json({ success: false, message: 'Este acesso está desativado. Fale com o administrador principal.' });
+  }
+
   req.session.student = null;
   req.session.proctor = null;
-  req.session.admin = { id: user._id.toString(), username: user.username };
-  await logSecurityEvent('admin_login_success', { meta: { username }, ip });
-  res.json({ success: true, username: user.username });
+  req.session.admin = adminUsers.sessionPayload(user);
+  await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
+  await logSecurityEvent('admin_login_success', { meta: { username, role: adminUsers.roleOf(user) }, ip });
+  res.json({ success: true, username: user.username, role: adminUsers.roleOf(user), permissions: adminUsers.permissionsOf(user) });
 });
 
-router.post('/logout', requireAdmin, (req, res) => {
-  req.session.admin = null;
+// Sair funciona mesmo com a sessão já revogada (conta desativada/senha
+// trocada).
+router.post('/logout', (req, res) => {
+  if (req.session) req.session.admin = null;
+  if (!req.session) return res.json({ success: true });
   req.session.save(() => res.json({ success: true }));
 });
 
 router.get('/me', requireAdmin, (req, res) => {
-  res.json({ success: true, admin: req.session.admin });
+  res.json({ success: true, admin: req.adminUser });
 });
 
 router.use(requireAdmin, adminApiLimiter);
 
-router.use('/integration', require('./adminIntegration'));
+// Áreas exclusivas do administrador principal — bloqueadas aqui no
+// servidor (o menu escondido no navegador é só conveniência). Integração
+// BotGhost e Mensagens do Bot vivem sob /integration.
+router.use('/integration', requirePrimary, require('./adminIntegration'));
+router.use('/users', requirePrimary, require('./adminUsers'));
+router.use('/storage', requirePrimary, require('./adminStorage'));
 
 // ===================== Configurações da plataforma =====================
 
@@ -239,7 +259,7 @@ router.post('/exams', async (req, res) => {
   if (errors.length) return res.status(400).json({ success: false, message: errors.join(' '), errors });
   if (update.slug && await Exam.exists({ slug: update.slug })) return res.status(409).json({ success: false, message: `O identificador "${update.slug}" já é usado por outra prova.` });
   const slug = update.slug || await examGroups.uniqueSlug(base.name);
-  const exam = await Exam.create({ ...base, ...update, slug, createdBy: req.session.admin.id });
+  const exam = await Exam.create({ ...base, ...update, slug, createdBy: req.adminUser.id });
   await logSecurityEvent('exam_created', { meta: { examId: exam._id.toString(), name: exam.name, group: exam.group, slug: exam.slug }, ip: req.ip });
   res.status(201).json({ success: true, exam });
 });
@@ -535,7 +555,7 @@ router.post('/rooms', async (req, res) => {
   if (!studentName || !String(studentName).trim()) return res.status(400).json({ success: false, message: 'Nome do aluno é obrigatório.' });
 
   const { room, studentLink } = await createRoom({
-    examId, roomLabel, studentName, createdBy: req.session.admin.id, createdVia: 'admin',
+    examId, roomLabel, studentName, createdBy: req.adminUser.id, createdVia: 'admin',
   });
 
   res.status(201).json({ success: true, room, studentLink });
@@ -585,6 +605,7 @@ router.post('/rooms/:roomId/close', async (req, res) => {
   if (!room) return res.status(404).json({ success: false, message: 'Sala não encontrada.' });
 
   room.status = 'closed';
+  room.endedAt = new Date();
   await room.save();
 
   // Encerrar a sala no meio da prova finaliza a tentativa pelo mesmo caminho
@@ -597,7 +618,7 @@ router.post('/rooms/:roomId/close', async (req, res) => {
   }
   // finalizeAttempt marca a sala como "finished"; aqui ela precisa ficar
   // "closed" (links deixam de funcionar).
-  await Room.updateOne({ _id: room._id }, { status: 'closed' });
+  await Room.updateOne({ _id: room._id }, { status: 'closed', endedAt: room.endedAt });
 
   req.app.get('io').to(`room:${roomId}`).emit('room:closed');
   liveState.removeRoom(roomId);
@@ -632,11 +653,15 @@ router.delete('/rooms/:roomId', async (req, res) => {
 // ===================== Dashboard / salas ao vivo =====================
 
 router.get('/dashboard', async (req, res) => {
-  const [examsInProgress, examsFinished, roomsActive] = await Promise.all([
+  const [examsInProgress, examsFinishedStored, examsFinishedRemoved, roomsActive] = await Promise.all([
     ExamAttempt.countDocuments({ status: 'in_progress' }),
     ExamAttempt.countDocuments({ status: { $in: ['finished', 'finished_timeout'] }, deletedAt: null }),
+    // Finalizadas já apagadas pela limpeza de armazenamento: o total
+    // acumulado não diminui.
+    HistoryCounter.get(storageCleanup.FINISHED_COUNTER_KEY),
     Room.countDocuments({ status: 'active' }),
   ]);
+  const examsFinished = examsFinishedStored + examsFinishedRemoved;
 
   const liveSummaries = liveState.allSummaries();
   const studentsOnline = liveSummaries.filter((r) => r.studentOnline).length;
@@ -665,7 +690,7 @@ router.get('/rooms/live', (req, res) => {
 // Usado pela Central de Monitoramento — mesmo mecanismo de TURN/STUN dos
 // fiscais, só muda o rótulo usado para gerar a credencial efêmera.
 router.get('/ice-servers', (req, res) => {
-  res.json({ success: true, ...buildIceServers(`admin:${req.session.admin.id}`) });
+  res.json({ success: true, ...buildIceServers(`admin:${req.adminUser.id}`) });
 });
 
 // ===================== Resultados e auditoria =====================
@@ -682,7 +707,7 @@ router.get('/results', async (req, res) => {
 });
 
 function adminActor(req) {
-  return `admin:${req.session.admin.username}`;
+  return `admin:${req.adminUser.username}`;
 }
 
 // Ajuste manual da nota (a nota calculada original é preservada). Motivo
@@ -771,7 +796,7 @@ router.delete('/results/:attemptId', async (req, res) => {
   res.json({ success: true, warning: out.warning });
 });
 
-router.get('/exam-events', async (req, res) => {
+router.get('/exam-events', requirePrimary, async (req, res) => {
   const { roomId, attemptId } = req.query;
   const filter = {};
   if (roomId && isValidObjectId(roomId)) filter.roomId = roomId;
@@ -781,13 +806,13 @@ router.get('/exam-events', async (req, res) => {
   res.json({ success: true, events });
 });
 
-router.get('/security-logs', async (req, res) => {
+router.get('/security-logs', requirePrimary, async (req, res) => {
   const logs = await SecurityLog.find().sort({ at: -1 }).limit(300).lean();
   res.json({ success: true, logs });
 });
 
 // Uso do banco (somente leitura): contagens, tamanhos e datas por coleção.
-router.get('/storage-report', async (req, res) => {
+router.get('/storage-report', requirePrimary, async (req, res) => {
   const report = await require('../lib/storageReport').buildStorageReport();
   res.json({ success: true, report });
 });

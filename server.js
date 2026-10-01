@@ -40,6 +40,19 @@ async function main() {
   } catch (err) {
     console.error('[migracao] falha ao migrar grupos de provas (o site segue no ar):', err && err.message);
   }
+  // Perfis do painel: contas antigas viram administrador principal (o
+  // login atual mantém acesso completo). Idempotente.
+  try {
+    await require('./lib/adminUsers').migrateAdminRoles();
+  } catch (err) {
+    console.error('[migracao] falha ao migrar perfis de admin (contas antigas continuam valendo como principal):', err && err.message);
+  }
+  // Limpeza de armazenamento interrompida por reinício: libera a trava.
+  try {
+    await require('./lib/storageCleanup').recoverInterruptedRuns();
+  } catch (err) {
+    console.error('[limpeza] falha ao recuperar execução interrompida:', err && err.message);
+  }
   const sessionMiddleware = createSessionMiddleware();
 
   const app = express();

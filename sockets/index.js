@@ -324,6 +324,14 @@ function initSockets(io) {
       slog(`socket.id=${socket.id} resolvido como role=${resolved.role} roomId=${resolved.roomId || '-'}`);
 
       if (resolved.role === 'admin') {
+        // Mesma conferência do HTTP: conta ativa e sessão ainda válida
+        // (desativar/redefinir senha derruba também o tempo real).
+        const adminUser = await require('../lib/adminUsers').loadSessionUser(socket.request.session.admin);
+        if (!adminUser) {
+          socket.emit('auth:error', { message: 'Sessão inválida ou expirada.' });
+          socket.disconnect(true);
+          return;
+        }
         registerAdmin(io, socket);
         return;
       }

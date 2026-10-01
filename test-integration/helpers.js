@@ -32,7 +32,7 @@ async function setupDb() {
   await connectDb();
   console.log = originalLog;
   // Garante os índices únicos (pedido repetido, promoção concorrente).
-  for (const file of ['Room', 'ExamAttempt', 'Exam', 'Question', 'IntegrationConfig', 'IntegrationNotification', 'IntegrationRequest', 'MessageTemplate', 'PromotionDraft', 'Promotion', 'SecurityLog', 'ExamEvent']) {
+  for (const file of ['Room', 'ExamAttempt', 'Exam', 'Question', 'IntegrationConfig', 'IntegrationNotification', 'IntegrationRequest', 'MessageTemplate', 'PromotionDraft', 'Promotion', 'SecurityLog', 'ExamEvent', 'User', 'StorageCleanup', 'HistoryCounter']) {
     await require(`../models/${file}`).init();
   }
   return {
@@ -157,7 +157,61 @@ function fakeWebhook() {
 
 const silentLog = { log() {}, warn() {}, error() {} };
 
+// Sobe o site "de verdade" (sessão com cookie, CSRF de /api, rotas do admin,
+// aluno e fiscal) num Express de teste. Cada cliente tem o próprio cookie,
+// como navegadores diferentes. `ip` simula IPs distintos (o limite de login
+// é por IP).
+async function startSite() {
+  const session = require('express-session');
+  const { verifySameOrigin } = require('../middleware/csrf');
+  const app = express();
+  app.set('trust proxy', 1);
+  const fakeIo = { to: () => ({ emit() {} }), of: () => ({ sockets: new Map() }) };
+  app.set('io', fakeIo);
+  app.use(express.json({ limit: '200kb' }));
+  app.use(session({ name: 'provas_live.sid', secret: 'test-secret', resave: false, saveUninitialized: false }));
+  app.use('/api', verifySameOrigin);
+  app.use('/api/admin', require('../routes/admin'));
+  app.use('/api/student', require('../routes/student'));
+  app.use('/api/proctor', require('../routes/proctor'));
+  app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    res.status(err.status || 500).json({ success: false, message: err.message || 'Erro interno.' });
+  });
+  const server = http.createServer(app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let ipSeq = 0;
+  function client() {
+    let cookie = '';
+    ipSeq += 1;
+    const ip = `10.0.${Math.floor(ipSeq / 250)}.${(ipSeq % 250) + 1}`;
+    return async function call(method, path, body) {
+      const headers = { 'X-Forwarded-For': ip };
+      if (cookie) headers.Cookie = cookie;
+      let payload;
+      if (body !== undefined && method !== 'GET') { payload = JSON.stringify(body); headers['Content-Type'] = 'application/json'; }
+      const res = await fetch(`${base}${path}`, { method, headers, body: payload });
+      const set = res.headers.get('set-cookie');
+      if (set) cookie = set.split(';')[0];
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch (_) { /* não-JSON */ }
+      return { status: res.status, body: json, text };
+    };
+  }
+  return { client, close: () => new Promise((r) => server.close(r)) };
+}
+
+// Conta de admin direto no banco (role: 'primary' | 'restricted' | 'admin'
+// antigo).
+async function seedAdmin(username, password, role = 'primary', extra = {}) {
+  const argon2 = require('argon2');
+  const User = require('../models/User');
+  return User.create({ username, passwordHash: await argon2.hash(password, { type: argon2.argon2id }), role, ...extra });
+}
+
 module.exports = {
-  setupDb, testEnv, startApi, actorFields, dafpActorFields, PROFESSOR_ROLE, OTHER_ROLE, saveDefaultConfig, seedExam, takeExam, fakeWebhook, silentLog,
+  setupDb, testEnv, startApi, startSite, seedAdmin, actorFields, dafpActorFields, PROFESSOR_ROLE, OTHER_ROLE, saveDefaultConfig, seedExam, takeExam, fakeWebhook, silentLog,
   GUILD, OPERATOR, OTHER_OPERATOR, STRANGER, PANEL, RESULTS, TEST_CHANNEL, ANNOUNCE, ADD1, ADD2, REM, KEY, WEBHOOK_URL,
 };

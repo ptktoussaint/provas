@@ -9,6 +9,12 @@
     document.getElementById('error-message').textContent = message;
     showScreen('error-screen');
   }
+  // Nome da prova DESTA sala (vem do servidor, pelo vínculo da sala).
+  function applyExamIdentity(name) {
+    const examName = String(name || '').trim() || 'Prova';
+    document.title = `Fiscalização — ${examName}`;
+    document.querySelectorAll('.js-wordmark').forEach((el) => { el.textContent = examName; });
+  }
   function showFinished(message) {
     if (message) document.getElementById('finished-message').textContent = message;
     window.ProctorWebRTC.stop();
@@ -89,6 +95,7 @@
       }
 
       identifyData = data;
+      applyExamIdentity(data.exam && data.exam.name);
 
       if (data.room.roomId) {
         const idBadge = document.getElementById('room-id-badge');
@@ -210,6 +217,7 @@
     const res = await fetch('/api/proctor/status');
     const data = await res.json();
     if (!data.success) return;
+    if (data.examName) applyExamIdentity(data.examName);
 
     if (data.progress) {
       setBadge('badge-attempt', data.progress.status === 'in_progress' ? 'REALIZANDO PROVA' : 'PROVA FINALIZADA', data.progress.status === 'in_progress' ? 'badge-ok' : 'badge-neutral');

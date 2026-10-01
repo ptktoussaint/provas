@@ -1,5 +1,4 @@
 const Room = require('../models/Room');
-const Exam = require('../models/Exam');
 const ExamAttempt = require('../models/ExamAttempt');
 const Settings = require('../models/Settings');
 
@@ -13,6 +12,7 @@ const { logSecurityEvent } = require('../lib/securityLog');
 const { buildIceServers } = require('../lib/turn');
 const liveState = require('../lib/liveState');
 const { createSafeRouter } = require('../lib/safeRouter');
+const { examDisplayName, resolveRoomExam } = require('../lib/examIdentity');
 
 const router = createSafeRouter();
 
@@ -32,9 +32,13 @@ router.post('/identify', identifyLimiter, async (req, res) => {
     return res.status(404).json({ success: false, message: 'Link inválido ou sala encerrada.' });
   }
 
-  const exam = await Exam.findById(room.examId);
-  if (!exam || !exam.active) {
-    return res.status(409).json({ success: false, message: 'Esta prova não está mais disponível.' });
+  const exam = await resolveRoomExam(room);
+  // Link de prova JÁ finalizada continua abrindo (vai direto para a tela
+  // final, com o nome certo) mesmo que a prova tenha sido desativada depois.
+  const current = room.currentAttemptId ? await ExamAttempt.findById(room.currentAttemptId).select('status').lean() : null;
+  const finished = room.status === 'finished' || Boolean(current && current.status !== 'in_progress');
+  if (!finished && (!exam || !exam.active)) {
+    return res.status(409).json({ success: false, message: 'Esta prova não está mais disponível.', examName: examDisplayName(exam) });
   }
 
   const settings = await Settings.getOrCreate();
@@ -52,14 +56,15 @@ router.post('/identify', identifyLimiter, async (req, res) => {
   res.json({
     success: true,
     room: { roomLabel: room.roomLabel, studentName: room.studentName, roomId: room._id.toString() },
+    finished,
     exam: {
-      name: exam.name,
-      imageUrl: exam.imageUrl,
+      name: examDisplayName(exam),
+      imageUrl: exam ? exam.imageUrl : null,
       // Vídeo desligado nesta prova: vai direto para o compartilhamento.
-      introVideoUrl: exam.showIntroVideo === false ? null : (exam.introVideoUrl || settings.introVideoUrl || null),
-      welcomeText: exam.welcomeTextStudent || null,
-      durationMinutes: exam.durationMinutes,
-      questionCount: exam.questionCount,
+      introVideoUrl: !exam || exam.showIntroVideo === false ? null : (exam.introVideoUrl || settings.introVideoUrl || null),
+      welcomeText: (exam && exam.welcomeTextStudent) || null,
+      durationMinutes: exam ? exam.durationMinutes : null,
+      questionCount: exam ? exam.questionCount : null,
     },
   });
 });

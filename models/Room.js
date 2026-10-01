@@ -22,6 +22,10 @@ const roomSchema = new mongoose.Schema({
   proctorTokens: { type: [proctorTokenSchema], default: [] },
   status: { type: String, enum: ['pending', 'active', 'finished', 'closed'], default: 'pending' },
   currentAttemptId: { type: mongoose.Schema.Types.ObjectId, ref: 'ExamAttempt', default: null },
+  // Quando a sala foi finalizada/encerrada (data usada pela limpeza de
+  // armazenamento). Salas antigas: null — a limpeza usa updatedAt, que é
+  // sempre igual ou posterior ao encerramento (nunca apaga antes da hora).
+  endedAt: { type: Date, default: null },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdVia: { type: String, enum: ['admin', 'discord'], default: 'admin' },
   // Destinatário cadastrado pelo operador no Discord. Só é gravado pelo

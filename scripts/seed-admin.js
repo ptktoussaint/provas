@@ -17,7 +17,7 @@ async function main() {
     console.log(`Admin "${env.seedAdminUsername}" já existe — nada a fazer.`);
   } else {
     const passwordHash = await argon2.hash(env.seedAdminPassword, { type: argon2.argon2id });
-    await User.create({ username: env.seedAdminUsername, passwordHash, role: 'admin' });
+    await User.create({ username: env.seedAdminUsername, passwordHash, role: 'primary' });
     console.log(`Admin "${env.seedAdminUsername}" criado com sucesso.`);
   }
 

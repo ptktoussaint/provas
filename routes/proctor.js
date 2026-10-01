@@ -1,5 +1,4 @@
 const Room = require('../models/Room');
-const Exam = require('../models/Exam');
 const ExamAttempt = require('../models/ExamAttempt');
 
 const { requireProctorSession } = require('../middleware/auth');
@@ -9,6 +8,7 @@ const { buildIceServers } = require('../lib/turn');
 const { logSecurityEvent } = require('../lib/securityLog');
 const liveState = require('../lib/liveState');
 const { createSafeRouter } = require('../lib/safeRouter');
+const { examDisplayName, resolveRoomExam } = require('../lib/examIdentity');
 
 const router = createSafeRouter();
 
@@ -26,7 +26,7 @@ router.post('/identify', identifyLimiter, async (req, res) => {
   }
 
   const tokenEntry = room.proctorTokens.find((t) => timingSafeEqualHex(t.tokenHash, hash));
-  const exam = await Exam.findById(room.examId);
+  const exam = await resolveRoomExam(room);
 
   // Ver comentário equivalente em routes/student.js: uma sessão só pode
   // representar um papel por vez, senão o servidor pode continuar
@@ -41,7 +41,9 @@ router.post('/identify', identifyLimiter, async (req, res) => {
     success: true,
     room: { roomLabel: room.roomLabel, studentName: room.studentName, roomId: room._id.toString() },
     proctorName: tokenEntry.label || null,
-    exam: exam ? { name: exam.name, durationMinutes: exam.durationMinutes, questionCount: exam.questionCount, welcomeText: exam.welcomeTextProctor || null } : null,
+    exam: exam
+      ? { name: examDisplayName(exam), durationMinutes: exam.durationMinutes, questionCount: exam.questionCount, welcomeText: exam.welcomeTextProctor || null }
+      : { name: examDisplayName(null), durationMinutes: null, questionCount: null, welcomeText: null },
   });
 });
 
@@ -75,6 +77,7 @@ router.get('/status', async (req, res) => {
   res.json({
     success: true,
     room: { roomLabel: room.roomLabel, studentName: room.studentName },
+    examName: examDisplayName(await resolveRoomExam(room)),
     live: liveState.summary(roomId),
     progress,
     serverTime: Date.now(),

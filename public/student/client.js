@@ -21,6 +21,14 @@
     showScreen('error-screen');
   }
 
+  // Nome da prova DESTA sala (vem do servidor, pelo vínculo da sala) no
+  // título da aba e em todo lugar que identifica a prova.
+  function applyExamIdentity(name) {
+    const examName = String(name || '').trim() || 'Prova';
+    document.title = examName;
+    document.querySelectorAll('.js-wordmark').forEach((el) => { el.textContent = examName; });
+  }
+
   let socket = null;
   let examInfo = null;
   let attempt = null;
@@ -52,11 +60,13 @@
     clearTimeout(slowTimer);
 
     if (!data.success) {
+      if (data.examName) applyExamIdentity(data.examName);
       errorEl.textContent = data.message || 'Não foi possível acessar esta sala.';
       return;
     }
 
     examInfo = data.exam;
+    applyExamIdentity(data.exam.name);
     document.getElementById('intro-exam-name').textContent = data.exam.name;
     document.getElementById('intro-student-name').textContent = `${data.room.studentName} — ${data.room.roomLabel}`;
     document.getElementById('welcome-student-name').textContent = data.room.studentName || 'candidato(a)';
@@ -79,6 +89,14 @@
       const idBadge = document.getElementById('room-id-badge');
       idBadge.classList.remove('hidden');
       idBadge.innerHTML = `<span class="badge-dot"></span>Sala #${data.room.roomId.slice(-6)}`;
+    }
+
+    // Link de prova já finalizada (recarregou/reabriu): direto para a tela
+    // final, com o nome da prova — sem reabrir boas-vindas nem compartilhamento.
+    if (data.finished) {
+      examEnded = true;
+      showScreen('finished-screen');
+      return;
     }
 
     connectSocket();

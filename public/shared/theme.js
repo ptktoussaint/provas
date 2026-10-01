@@ -18,7 +18,12 @@
     if (theme.cardColor) root.setProperty('--bg-card', theme.cardColor);
     root.setProperty('--bg-image', theme.backgroundImageUrl ? `url('${theme.backgroundImageUrl}')` : 'none');
 
-    if (data.platformName) {
+    // Páginas com identidade própria não usam o "nome da plataforma":
+    // aluno/fiscal mostram o nome da prova DA SALA (definido pelo client.js
+    // depois de identificar o link) e o painel admin é sempre "Provas DAFP".
+    // Antes o nome global aparecia em toda sala ("Prova TCEL" numa prova de
+    // Capitão, por exemplo).
+    if (data.platformName && !document.documentElement.dataset.identity) {
       const section = document.documentElement.dataset.section;
       document.title = section ? `${section} — ${data.platformName}` : data.platformName;
       document.querySelectorAll('.js-wordmark').forEach((el) => { el.textContent = data.platformName; });

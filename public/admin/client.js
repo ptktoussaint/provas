@@ -6,6 +6,9 @@
     });
     let data;
     try { data = await res.json(); } catch (_) { data = { success: false, message: 'Resposta inválida do servidor.' }; }
+    // Sessão encerrada pelo servidor (conta desativada ou senha redefinida):
+    // volta para a tela de login.
+    if (res.status === 401 && data.code === 'session_revoked') { location.reload(); }
     return { status: res.status, ...data };
   }
 
@@ -51,7 +54,6 @@
     const errorEl = document.getElementById('setup-error');
     const data = await api('/setup-first-admin', { method: 'POST', body: JSON.stringify({ username, password }) });
     if (!data.success) { errorEl.textContent = data.message || 'Não foi possível criar o administrador.'; return; }
-    document.getElementById('admin-username').textContent = data.username;
     document.getElementById('setup-screen').classList.add('hidden');
     enterApp();
   });
@@ -65,7 +67,6 @@
     const errorEl = document.getElementById('login-error');
     const data = await api('/login', { method: 'POST', body: JSON.stringify({ username, password }) });
     if (!data.success) { errorEl.textContent = data.message || 'Falha no login.'; return; }
-    document.getElementById('admin-username').textContent = data.username;
     enterApp();
   });
 
@@ -83,14 +84,34 @@
 
     const data = await api('/me');
     if (data.success) {
-      document.getElementById('admin-username').textContent = data.admin.username;
-      enterApp();
+      enterApp(data.admin);
     } else {
       document.getElementById('login-screen').classList.remove('hidden');
     }
   }
 
-  function enterApp() {
+  // Permissões vêm do servidor (sessão + conta no banco). Esconder as
+  // áreas aqui é só para o menu ficar limpo: o servidor recusa (403) toda
+  // chamada dessas áreas para quem não é o administrador principal.
+  let permissions = {};
+  function applyPermissions(admin) {
+    permissions = (admin && admin.permissions) || {};
+    document.querySelectorAll('[data-area]').forEach((el) => {
+      if (!permissions[el.dataset.area]) el.remove();
+    });
+    const who = admin ? `${admin.displayName || admin.username}${admin.role === 'primary' ? ' · administrador principal' : ' · acesso restrito'}` : '';
+    document.getElementById('admin-username').textContent = who;
+    window.AdminPermissions = permissions;
+    document.dispatchEvent(new CustomEvent('admin:permissions', { detail: permissions }));
+  }
+
+  async function enterApp(admin) {
+    if (!admin) {
+      const me = await api('/me');
+      if (!me.success) { location.reload(); return; }
+      admin = me.admin;
+    }
+    applyPermissions(admin);
     document.getElementById('setup-screen').classList.add('hidden');
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app-screen').classList.remove('hidden');
@@ -116,7 +137,7 @@
     loadSettings();
     loadExams();
     loadResults();
-    loadSecurityLogs();
+    if (permissions.security) loadSecurityLogs();
   }
 
   // ---------------- Socket (tempo real) ----------------
@@ -126,6 +147,7 @@
     const socket = io();
     window.AdminMonitor.bindSocket(socket);
     socket.on('connect_error', (err) => console.error('[socket] connect_error', err));
+    socket.on('auth:error', () => { socket.disconnect(); setTimeout(() => location.reload(), 500); });
     socket.on('rooms:snapshot', (rooms) => {
       liveRooms.clear();
       for (const r of rooms) if (r) liveRooms.set(r.roomId, r);
@@ -401,7 +423,6 @@
   async function loadSettings() {
     const data = await api('/settings');
     if (!data.success) return;
-    document.getElementById('settings-platform-name').value = data.settings.platformName || '';
     const videoStatus = document.getElementById('settings-intro-video-status');
     videoStatus.textContent = data.settings.introVideoUrl ? '✓ Vídeo padrão configurado' : 'Nenhum vídeo padrão';
     videoStatus.dataset.state = data.settings.introVideoUrl ? 'ok' : 'none';
@@ -421,17 +442,6 @@
     document.getElementById('theme-card-color').value = theme.cardColor || '#2a0e0e';
     applyThemePreview(theme);
   }
-
-  document.getElementById('settings-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const data = await api('/settings', {
-      method: 'PUT',
-      body: JSON.stringify({
-        platformName: document.getElementById('settings-platform-name').value,
-      }),
-    });
-    if (data.success) document.querySelectorAll('.js-wordmark').forEach((el) => { el.textContent = data.settings.platformName; });
-  });
 
   document.getElementById('settings-intro-video-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1402,13 +1412,13 @@
     const months = t.monthsUntilFull == null ? '—' : t.monthsUntilFull > 1200 ? 'mais de 100 anos' : `~${t.monthsUntilFull} meses`;
     document.getElementById('storage-report-summary').innerHTML = `
       <div class="panel-grid" style="margin-bottom:12px">
-        <div class="stat-card"><div class="stat-value">${fmtBytes(t.used)}</div><div class="stat-label">Usado (dados + índices) de 512 MB — ${t.usedPercent}%</div></div>
+        <div class="stat-card"><div class="stat-value">${fmtBytes(t.used)}</div><div class="stat-label">Usado só por este site (dados + índices) — não é o total do cluster</div></div>
         <div class="stat-card"><div class="stat-value">${fmtBytes(t.storageSize)}</div><div class="stat-label">Em disco (comprimido)</div></div>
         <div class="stat-card"><div class="stat-value">${fmtBytes(t.bytesPerMonth)}</div><div class="stat-label">Crescimento estimado por mês</div></div>
-        <div class="stat-card"><div class="stat-value">${months}</div><div class="stat-label">Até encher, no ritmo atual</div></div>
+        <div class="stat-card"><div class="stat-value">${months}</div><div class="stat-label">Até este site sozinho somar 512 MB, no ritmo atual</div></div>
       </div>
       ${t.smallSample ? '<p class="hint" style="margin-top:0">⚠ Amostra pequena em algumas coleções (menos de 30 dias ou de 30 registros): o crescimento estimado pode errar bastante.</p>' : ''}
-      <p class="hint" style="margin-top:0">Gerado em ${fmtDate(r.generatedAt)}. O número oficial de uso é o do painel do Atlas.</p>`;
+      <p class="hint" style="margin-top:0">Gerado em ${fmtDate(r.generatedAt)}. O consumo total do cluster (que conta para o limite) está no quadro acima.</p>`;
     document.getElementById('storage-report-tbody').innerHTML = r.collections.map((c) => {
       const g = c.growth;
       const growth = g.selfExpiring ? `se limpa sozinha (${escapeHtml(g.selfExpiring)})`
@@ -1428,7 +1438,8 @@
     // uma nota que já foi excluída em outra ação), levando a erros como
     // "Tentativa não encontrada" ao clicar em Detalhes de uma linha velha.
     document.querySelector('[data-tab="results-tab"]').addEventListener('click', loadResults);
-    document.querySelector('[data-tab="security-tab"]').addEventListener('click', loadSecurityLogs);
+    const securityBtn = document.querySelector('[data-tab="security-tab"]');
+    if (securityBtn) securityBtn.addEventListener('click', loadSecurityLogs);
   }
 
   boot();

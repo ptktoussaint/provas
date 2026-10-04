@@ -52,3 +52,37 @@ test('buildIceServers gera credencial HMAC efêmera quando TURN_SECRET está def
   assert.match(turnEntry.username, /^\d+:viewer-123$/);
   assert.ok(turnEntry.credential.length > 0);
 });
+
+test('STUN_URLS: vírgulas, espaços, vazios e repetidos; cada STUN vira uma entrada no iceServers, TURN preservado', () => {
+  const list = 'stun:stun.l.google.com:19302, stun:stun1.l.google.com:19302,,stun:stun2.l.google.com:19302 ,stun:stun3.l.google.com:19302,stun:stun4.l.google.com:19302,stun:stun.relay.metered.ca:80, stun:stun1.l.google.com:19302 , ';
+  const result = buildIceServers('teste', {
+    STUN_URLS: list,
+    TURN_URLS: 'turn:global.relay.metered.ca:80, turn:global.relay.metered.ca:443?transport=tcp,turn:global.relay.metered.ca:80',
+    TURN_USERNAME: 'user1',
+    TURN_CREDENTIAL: 'pass1',
+    TURN_SECRET: '',
+  });
+  const stun = result.iceServers.filter((s) => typeof s.urls === 'string').map((s) => s.urls);
+  assert.deepEqual(stun, [
+    'stun:stun.l.google.com:19302',
+    'stun:stun1.l.google.com:19302',
+    'stun:stun2.l.google.com:19302',
+    'stun:stun3.l.google.com:19302',
+    'stun:stun4.l.google.com:19302',
+    'stun:stun.relay.metered.ca:80',
+  ]);
+  const turn = result.iceServers.find((s) => Array.isArray(s.urls));
+  assert.deepEqual(turn, { urls: ['turn:global.relay.metered.ca:80', 'turn:global.relay.metered.ca:443?transport=tcp'], username: 'user1', credential: 'pass1' });
+  assert.equal(result.turnConfigured, true);
+  assert.equal(result.iceServers.length, 7);
+});
+
+test('STUN_URLS inválido ou vazio: entrada sem "stun:" é ignorada (não quebra o WebRTC); lista vazia volta ao padrão', () => {
+  const bad = buildIceServers('teste', { STUN_URLS: 'stun.l.google.com:19302, https://x, stun:ok.example.com:3478', TURN_URLS: '' });
+  assert.deepEqual(bad.iceServers.map((s) => s.urls), ['stun:ok.example.com:3478']);
+  const empty = buildIceServers('teste', { STUN_URLS: ' , ,', TURN_URLS: '' });
+  assert.deepEqual(empty.iceServers.map((s) => s.urls), ['stun:stun.l.google.com:19302']);
+  // TURN com esquema errado também é descartado (e então nada de TURN).
+  const turnBad = buildIceServers('teste', { STUN_URLS: '', TURN_URLS: 'relay.example.com:80', TURN_USERNAME: 'u', TURN_CREDENTIAL: 'p' });
+  assert.equal(turnBad.turnConfigured, false);
+});

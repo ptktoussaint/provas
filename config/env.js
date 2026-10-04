@@ -10,6 +10,31 @@ function required(name, fallback) {
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+const DEFAULT_STUN_URL = 'stun:stun.l.google.com:19302';
+
+// Lista de servidores ICE separados por vírgula (STUN_URLS / TURN_URLS):
+// tira espaços, ignora vazios e repetidos e descarta o que não começa com o
+// esquema certo — um único endereço inválido faria o navegador recusar a
+// conexão WebRTC inteira (RTCPeerConnection lança erro). Lista vazia ⇒
+// padrão (STUN do Google; TURN nenhum).
+function parseIceUrls(name, schemes, fallback) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of String(process.env[name] || '').split(',')) {
+    const url = raw.trim();
+    if (!url) continue;
+    if (!schemes.some((s) => url.toLowerCase().startsWith(s))) {
+      console.warn(`[env] ${name}: endereço ignorado (precisa começar com ${schemes.join(' ou ')}): ${url.slice(0, 80)}`);
+      continue;
+    }
+    const key = url.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(url);
+  }
+  return out.length ? out : fallback;
+}
+
 function publicBaseUrlFromEnv() {
   const value = (process.env.PUBLIC_BASE_URL || '').trim();
   if (!value) return null;
@@ -31,14 +56,8 @@ module.exports = {
   mongoDbName: (process.env.MONGODB_DB_NAME || '').trim() || null,
   sessionSecret: required('SESSION_SECRET'),
   cookieSecure: process.env.COOKIE_SECURE === 'true',
-  stunUrls: (process.env.STUN_URLS || 'stun:stun.l.google.com:19302')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean),
-  turnUrls: (process.env.TURN_URLS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean),
+  stunUrls: parseIceUrls('STUN_URLS', ['stun:', 'stuns:'], [DEFAULT_STUN_URL]),
+  turnUrls: parseIceUrls('TURN_URLS', ['turn:', 'turns:'], []),
   turnSecret: process.env.TURN_SECRET || null,
   turnCredentialTtlSeconds: parseInt(process.env.TURN_CREDENTIAL_TTL_SECONDS || '43200', 10),
   // Credenciais estáticas — alternativa mais simples ao TURN_SECRET (HMAC

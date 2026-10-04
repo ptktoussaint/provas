@@ -1,5 +1,7 @@
 # Render gratuito + integração BotGhost
 
+> **Serviço novo `provasdafp` (recuperação após a suspensão da conta antiga):** siga `GPT-RECUPERACAO-PROVASDAFP.md` — ele tem a configuração completa do serviço, todas as variáveis e a ordem segura de religar a integração.
+
 O site continua no **mesmo serviço web gratuito do Render**: sem worker pago, sem serviço extra e sem "ping" para mantê-lo acordado. Tudo o que importa fica no **MongoDB** (fila de avisos, rascunhos, lotes, promoções, modelos de mensagem). Por isso, dormir ou reiniciar não perde nada.
 
 ## Como o plano gratuito afeta o bot

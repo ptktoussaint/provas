@@ -70,6 +70,10 @@ O bug mais difícil deste projeto: sessão do Admin colidindo com a do Aluno/Fis
 - O usuário não sabe ler código — respostas para ele devem ser em português, focadas no efeito prático ("o que muda pra você"), não em detalhes de implementação, a menos que peça.
 - **Publicação automática (decisão explícita do usuário):** toda atualização pedida, depois de pronta e com `npm test` e `npm run test:integration` passando, é commitada, enviada à branch de trabalho da sessão e **juntada na `main` (deploy no Render) sem precisar pedir** — não esperar "pode juntar na main". Se algum teste falhar, NÃO publicar: corrigir primeiro ou avisar o usuário. Ele não tem terminal próprio, dependeu disso o projeto inteiro.
 
+## Deploy / recuperação (serviço `provasdafp`)
+
+A conta antiga do Render foi suspensa (out/2026); o site sobe num serviço novo apontando para o MESMO banco Atlas `test` (nunca restaurar backup nem criar banco novo). Guia completo e sem segredos: `GPT-RECUPERACAO-PROVASDAFP.md`. Pontos fixos: Build `npm ci --omit=dev`, Start `npm start`, Node 22 (`engines`), Health Check `/healthz` (público, sem dados, 503 sem banco). `MONGODB_DB_NAME` (opcional) força o banco; `PUBLIC_BASE_URL` (opcional) substitui `RENDER_EXTERNAL_URL` para domínio próprio. Ao iniciar, `lib/startupReport.js` escreve nos Logs (só contagens): banco em uso, provas/questões/tentativas/salas/admins, fila de avisos em aberto, campos com `/uploads/` (arquivos perdidos do disco antigo) e endereços *.onrender.com antigos; banco vazio ⇒ alerta para PARAR. Tokens de aluno/fiscal são SHA-256 sem segredo (links antigos valem trocando só o domínio); `SESSION_SECRET` só assina cookies (trocar = todos fazem login de novo). Primeiro deploy com `BOTGHOST_INTEGRATION_ENABLED=false` e `BOTGHOST_NOTIFICATIONS_ENABLED=false`.
+
 ## Riscos conhecidos em aberto
 
 - **Uploads (`public/uploads/`) ficam no disco efêmero do Render** — somem a cada redeploy. Sem solução aplicada (decisão consciente do usuário); se precisar resolver, é um disco persistente pago no Render.

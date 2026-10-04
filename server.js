@@ -53,6 +53,10 @@ async function main() {
   } catch (err) {
     console.error('[limpeza] falha ao recuperar execução interrompida:', err && err.message);
   }
+  // Relatório só de leitura nos Logs (banco em uso, contagens, fila de
+  // avisos, arquivos que dependiam do serviço antigo). Nunca bloqueia o início.
+  require('./lib/startupReport').logStartupReport({ publicBaseUrl: env.publicBaseUrl })
+    .catch((err) => console.error('[inicio] relatório indisponível:', err && err.message));
   const sessionMiddleware = createSessionMiddleware();
 
   const app = express();
@@ -100,6 +104,13 @@ async function main() {
   app.use((req, res, next) => {
     res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), display-capture=(self)');
     next();
+  });
+
+  // Health Check do Render: público, sem sessão e sem gravar nada. 200 com o
+  // banco conectado, 503 sem ele. Não devolve nenhum dado.
+  app.get('/healthz', (req, res) => {
+    const ok = require('./config/db').mongoose.connection.readyState === 1;
+    res.status(ok ? 200 : 503).json({ ok });
   });
 
   // API do BotGhost (máquina-a-máquina): antes do JSON global, da sessão e
